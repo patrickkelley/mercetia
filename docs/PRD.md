@@ -4,7 +4,7 @@
 |-------|-------|
 | **Document** | Mercetia Calculator — Product Requirements Document |
 | **Status** | Approved for Phase 1 build |
-| **Version** | 2.0 |
+| **Version** | 2.1 |
 | **Owner** | Platform & Payroll Engineering |
 | **Last Updated** | 2026-08-12 |
 | **Scope** | mercetia-core / -cli / -api / -persistence / -tax-data / -security |
@@ -14,31 +14,38 @@
 
 ## Graph Audit Summary
 
-The following table records every anomaly detected by the Graph Engineering audit (orphan nodes, dangling requirements, unresolved edge cases, and conflicts) and where each is resolved in this document.
+The following table records every anomaly detected by the Graph Engineering audit (orphan nodes, dangling requirements, unresolved edge cases, duplicate nodes, and conflicts) and where each is resolved in this document. AUD-01…AUD-36 were resolved in v2.0; AUD-37…AUD-43 were resolved by the v2.1 enrichment pass (43 defects total).
 
-| # | Anomaly Type | Severity | Description | Resolution in this PRD |
-|---|--------------|----------|-------------|------------------------|
-| 1 | Orphan Feature | Critical | FEAT-CORE (calculation core) was referenced by goals but had no owning module specification; three requirements dangled with no backing feature | §1.3 Module Architecture defines `mercetia-core` purity, artifact publication, and ArchUnit/Gradle enforcement (AUD-01); requirements R1/R2/R9 anchored in §2.1/§2.2 |
-| 2 | Dangling Requirements (3) | Critical | Overtime threshold, hours cap, and calendar rules had no owning feature/requirement edges | §2.1 OT formula, hours cap `0 ≤ h ≤ 168`; §2.2 calendar rules via `java.time` (AUD-16, AUD-30/15/28, AUD-17/18) |
-| 3 | Goals without Persona (5) | Major | Five goals had no owning persona, breaking Persona→Goal chains | §3.3 Personas→Goals mapping: Admin→Compliance, Payroll→YTD Accuracy, System Integrator→{Low Latency, High Availability, Observability} (AUD-02) |
-| 4 | Infrastructure SPOF | Critical | Single PostgreSQL instance handled all reads/writes and bracket lookups | §3.6 Availability: single-writer primary + standby, read replicas, Hikari pooling, last-known-good bracket cache (AUD-20) |
-| 5 | FICA Basis Conflict | Critical | FICA SS wage base and Medicare 0.9% additional tax evaluated against period gross instead of cumulative YTD | §2.3, §2.3.2, §2.4.1 — YTD-cumulative formulas `ytdSSRemaining`, `ss_subject`, `excess`, `addl` (AUD-32, AUD-11) |
-| 6 | Bracket Version Near-Cycle | Critical | Fallback chain risked mutating in-place data; version updates were non-atomic | §2.3.3 immutable snapshots per `(year, version_id)`, `If-Match` optimistic lock, READ-ONLY fallback chain (AUD-08) |
-| 7 | YTD Read/Write Ordering | Critical | YTD read and write were not serialized, permitting lost updates | §2.5 single transaction + pessimistic lock on `employees.version` + `UNIQUE(employee_id, period_start, period_end)` (AUD-09) |
-| 8 | Deduction Snapshot Ordering | Major | Snapshot writes raced across concurrent payroll runs | §4.7 snapshot write serialized per employee+period; enforcement decided at snapshot commit (AUD-10) |
-| 9 | Dangling Edge Cases | Major | Network failure, retry policy, >80h, OT threshold, leap year, month-end unhandled in §5 | §5.1–5.6 fully specified: timeouts, circuit breaker, backoff, cache fallback, error format, RTO (AUD-13/14, AUD-16, AUD-17/18) |
-| 10 | Conflict: Fallback vs degradedMode | Major | "503 Unavailable" vs "degraded mode with warning" semantics were inconsistent | §4.5/§5.4 unified: `degradedMode=true` whenever fallback-to-earlier-year or cached brackets are used; 503 only when zero bracket data exists for any year (AUD-25) |
-| 11 | Conflict: Batch CSV Contract | Major | CLI camelCase output mismatched API snake_case fields; single `fica_employee` column could not express SS/Medicare split | §6.2 canonical snake_case CSV + `results.json` with identical field names aligned with §4.6 (AUD-26) |
-| 12 | Conflict: Filing-Status Enum | Major | `DEPENDENT` status is not an IRS-recognized withholding filing status | §2.3.2/§4.1 enum = `SINGLE, MFJ, MFS, HOH`; Medicare thresholds $200K/$250K/$125K/$200K (AUD-27) |
-| 13 | Conflict: Semi-Monthly Boundary | Minor | Day-15 membership was ambiguous (1st–15th vs 15th–EOM) | §2.2 P1 = `[1st, 15th)` exclusive end; P2 = `[15th, EOM]` inclusive start; day 15 belongs to P2 (AUD-29) |
-| 14 | Conflict: Bi-Weekly Range | Minor | "13–14 days" contradicted the fixed-14-day definition | §2.2 bi-weekly = fixed 14 days (AUD-34) |
-| 15 | Conflict: CLI Naming | Minor | `meretia-calc` typo in command examples | §6 uses `mercetia-calc` everywhere (AUD-31) |
-| 16 | Conflict: Double-Time Activation | Minor | Double time was "optional" yet tax-formula text implied mandatory | §2.1 double-time ACTIVATED at >80h, not optional; formula `40r + 40·1.5r + (h−80)·2r` (AUD-30) |
-| 17 | Conflict: Startup Metric | Minor | A single startup SLA could not apply to both API and CLI | §3.1 API < 3s, CLI < 1s (AUD-35) |
-| 18 | Conflict: 401k Catch-Up | Minor | Catch-up contribution limit was missing from compliance list | §3.4 catch-up limit $30,500 (age 50+) added (AUD-36) |
-| 19 | Deferred Scope Markers | Major | Out-of-scope items had no formal `scope=deferred` markers | §9.2 + §10 REQ-OOS-LOCAL-TAX / REQ-OOS-MULTI-STATE / REQ-OOS-MULTI-CURRENCY / REQ-OOS-MULTI-EMPLOYER (AUD-19) |
+| # | AUD | Anomaly | Severity | Resolution in this PRD |
+|---|-----|---------|----------|------------------------|
+| 1 | AUD-01 | Orphan Feature — calculation core referenced by goals with no owning module spec; three requirements dangled | Critical | §1.3 defines `mercetia-core` purity, artifact publication, and ArchUnit/Gradle enforcement (REQ-CORE-PURITY R62, REQ-CORE-ARTIFACT R63, REQ-CORE-RESOURCES R64); OT/hours/calendar rules anchored in §2.1/§2.2 (R13, R11, R12) |
+| 2 | AUD-02 | Goals without Persona (5) | Major | §3.3 Personas→Goals mapping: Admin→Compliance; Payroll Specialist→YTD Accuracy; System Integrator→{Low Latency, High Availability, Observability} (REQ-PERSONA-GOALS R48) |
+| 3 | AUD-11 | FICA Basis Conflict | Critical | §2.3, §2.3.2, §2.4.1 — YTD-cumulative formulas `ytdSSRemaining`, `ss_subject`, `excess`, `addl` (R4, R5, R24, R25, R33) |
+| 4 | AUD-08 | Bracket Version Near-Cycle | Critical | §2.3.3 immutable snapshots per `(year, version_id)` (REQ-BRACKET-SNAPSHOT R39), `If-Match` optimistic lock, READ-ONLY fallback chain (R41) |
+| 5 | AUD-09 | YTD Read/Write Ordering | Critical | §2.5 single transaction + pessimistic lock on `employees.version` + `UNIQUE(employee_id, period_start, period_end)` (REQ-YTD-TX R31) |
+| 6 | AUD-10 | Deduction Snapshot Ordering | Major | §4.7 snapshot write serialized per employee+period; enforcement decided at snapshot commit (REQ-DEDUCTION-ENFORCEMENT R26) |
+| 7 | AUD-20 | Infrastructure SPOF | Critical | §3.6 single-writer primary + standby, read replicas, Hikari pooling, last-known-good bracket cache (REQ-PG-HA R78, REQ-BRACKET-CACHE R79) |
+| 8 | AUD-13/14 | Dangling Edge Cases | Major | §5.1–5.6 fully specified: timeouts, circuit breaker, backoff, cache fallback, error format, RTO (R68, R69, R70, R71) |
+| 9 | AUD-25 | Conflict: Fallback vs degradedMode | Major | §4.5/§5.4 unified: `degradedMode=true` on any fallback; 503 only when zero bracket data (REQ-DEGRADED-MODE R80) |
+| 10 | AUD-26 | Conflict: Batch CSV Contract | Major | §6.2 canonical snake_case CSV + `results.json` identical field names aligned with §4.6 (REQ-BATCH-CONTRACT R35, R61) |
+| 11 | AUD-27 | Conflict: Filing-Status Enum | Major | §2.3.2/§4.1 enum = `SINGLE, MFJ, MFS, HOH`; Medicare thresholds $200K/$250K/$125K/$200K (REQ-FILING-STATUS R25) |
+| 12 | AUD-29 | Conflict: Semi-Monthly Boundary | Minor | §2.2 P1 = `[1st, 15th)` exclusive end; P2 = `[15th, EOM]` inclusive start; day 15 belongs to P2 (R17) |
+| 13 | AUD-34 | Conflict: Bi-Weekly Range | Minor | §2.2 bi-weekly = fixed 14 days (R17) |
+| 14 | AUD-31 | Conflict: CLI Naming | Minor | §6 uses `mercetia-calc` everywhere (R60, R61) |
+| 15 | AUD-30 | Conflict: Double-Time Activation | Minor | §2.1 double-time ACTIVATED at >80h, mandatory; formula `40r + 40·1.5r + (h−80)·2r` (R13) |
+| 16 | AUD-35 | Conflict: Startup Metric | Minor | §3.1 split into two SLAs: API < 3s (REQ-STARTUP-API R74, M11) and CLI < 1s on the Spring-free Picocli fast path (REQ-STARTUP-CLI R96, M12) |
+| 17 | AUD-36 | Conflict: 401k Catch-Up | Minor | §3.4 catch-up limit $30,500 (age 50+) added (R29) |
+| 18 | AUD-16 | Conflict: Hours Cap vs Double-Time | Minor | §2.1/§2.2 R11 (`0 ≤ h ≤ 168`, 168.5/200 → 422) and R13 (double-time > 80) are consistent, not contradictory |
+| 19 | AUD-19 | Deferred Scope Markers | Major | §9.4 + §10 formal `scope=deferred` markers: REQ-OOS-LOCAL-TAX, REQ-OOS-MULTI-STATE, REQ-OOS-MULTI-CURRENCY, REQ-OOS-MULTI-EMPLOYER (R82–R87) |
+| 20 | AUD-37 | Phantom module: `mercetia-security` (F18) had no owning requirements | Critical | §1.2/§1.3: F18 re-anchored (NOT folded) — R44–R47 (JWT/RBAC/session fixation) and R49/R50 (PII/secrets) now `BELONGS_TO` F18; co-ownership cross-edges to F9/F10 retained; F18 measured by M3/M4/M5/M6/M16/M17 |
+| 21 | AUD-38 | Broken persona chain: Employee (P3) had a goal (self-service data access, G7) with no satisfying feature | Critical | §2.5/§3.3/§4.8: F9 (Auth & RBAC, `view:own`/`update:ownTaxProfile`) and F7 (Calculation History, `view:own`) now SATISFY G7 |
+| 22 | AUD-39 | Dangling edge case: API/CLI config divergence (E30) unexposed and unmitigated | Major | §5.7/§7: F14/F15 → EXPOSES → E30; REQ-CFG-PROPS (R65/R66) → MITIGATES → E30 (shared-parent config contract) |
+| 23 | AUD-40 | Orphan system dep: Springdoc (D22) had no consuming requirement | Major | §4.3/§9 Phase 3: new REQ-OPENAPI (R91) added under the API feature (F14); R91 → DEPENDS_ON → D22 + D13 (`/v3/api-docs`, `/swagger-ui`) |
+| 24 | AUD-41 | Unmeasured features: Deductions & Limits (F4) and Calculation History (F7) had no metrics | Major | §3.7: new M26 (deduction-limit accuracy) → F4 and M27 (audit completeness) → F7 |
+| 25 | AUD-42 | Duplicate requirement nodes: R1≡R13, R2≡R11, R3≡R39, R6≡R26, R9≡R12, R10≡R17 | Minor | Merged to canonical single nodes (REQ-* / richer label wins); all BELONGS_TO/DEPENDS_ON/MITIGATES edges re-wired to the canonical node (enriched-graph MAPPING) |
+| 26 | AUD-43 | Core-purity self-reference: R62 (REQ-CORE-PURITY) → D4 (the core itself) | Minor | R62→D4 edge removed; enforcement carried by ArchUnit + Gradle module dependency check (D25) per §1.3 |
 
-**Result:** 0 orphan nodes, 0 dangling edge cases, 0 unresolved conflicts; all Persona→Goal→Feature→Requirement→Metric chains resolve (36 defects resolved).
+**Result: 0 orphan nodes, 0 dangling edge cases, 0 unresolved conflicts, 0 broken persona chains; 100% path continuity Persona→Goal→Feature→Requirement→Metric (43 defects resolved).**
 
 ---
 
@@ -52,7 +59,6 @@ flowchart LR
     P3["Employee"]
     P4["System Integrator"]
   end
-
   subgraph Goals
     G1["Low Latency"]
     G2["High Availability"]
@@ -60,8 +66,8 @@ flowchart LR
     G4["Compliance"]
     G5["YTD Accuracy"]
     G6["Security"]
+    G7["Self-service access to own data"]
   end
-
   subgraph Features
     F1["Gross Pay Calc"]
     F2["Tax Brackets & Calc"]
@@ -75,21 +81,24 @@ flowchart LR
     F10["Secrets & PII Protection"]
     F11["Health & Metrics"]
     F12["CLI Tool"]
+    F14["mercetia-api module"]
+    F15["mercetia-cli module"]
+    F18["mercetia-security module"]
   end
-
   subgraph Requirements
-    R1["OT formula 40/1.5/2.0"]
-    R2["Hours cap 0-168"]
-    R3["Bracket snapshot immutable"]
     R4["FICA SS YTD wage base"]
     R5["Medicare 0.9% YTD threshold"]
-    R6["Deduction enforcement STOP/WARN/EXCEED"]
     R7["YTD serialized + idempotent"]
     R8["Canonical batch CSV"]
-    R9["java.time calendar rules"]
-    R10["Semi-monthly day-15 boundary"]
+    R11["Hours cap 0-168"]
+    R12["java.time calendar rules"]
+    R13["OT formula 40/1.5/2.0"]
+    R17["Pay frequencies 7-35"]
+    R26["Deduction enforcement STOP/WARN/EXCEED"]
+    R39["Bracket snapshot immutable"]
+    R91["REQ-OPENAPI via Springdoc"]
+    R96["CLI Spring-free startup < 1s"]
   end
-
   subgraph SysDeps
     D1["PostgreSQL primary + standby"]
     D2["Read replicas"]
@@ -99,8 +108,9 @@ flowchart LR
     D6["Prometheus"]
     D7["Vault / Secrets Manager"]
     D8["Gradle artifact"]
+    D14["Picocli"]
+    D22["Springdoc OpenAPI"]
   end
-
   subgraph EdgeCases
     E1["DB outage"]
     E2["Network failure"]
@@ -109,8 +119,8 @@ flowchart LR
     E5["OT across period boundary"]
     E6["Leap year / Feb 29"]
     E7["Month-end semi-monthly"]
+    E30["API/CLI config divergence"]
   end
-
   subgraph Metrics
     M1["p95 < 200ms"]
     M2["10K batch < 30s"]
@@ -118,73 +128,73 @@ flowchart LR
     M4["0 PII in logs"]
     M5["Token validation failure < 0.1%"]
     M6["Secret rotation < 24h"]
+    M26["Deduction-limit accuracy"]
+    M27["Audit completeness"]
   end
-
   P4 -->|HAS_GOAL| G1
   P4 -->|HAS_GOAL| G2
   P4 -->|HAS_GOAL| G3
   P1 -->|HAS_GOAL| G4
   P1 -->|HAS_GOAL| G6
   P2 -->|HAS_GOAL| G5
-
+  P3 -->|HAS_GOAL| G7
   F1 -->|SATISFIES| G1
   F6 -->|SATISFIES| G1
-  F2 -->|SATISFIES| G4
+  F12 -->|SATISFIES| G1
   F8 -->|SATISFIES| G2
+  F14 -->|SATISFIES| G2
+  F11 -->|SATISFIES| G3
+  F2 -->|SATISFIES| G4
   F3 -->|SATISFIES| G5
   F5 -->|SATISFIES| G5
-  F7 -->|SATISFIES| G5
+  F7 -->|SATISFIES| G7
   F9 -->|SATISFIES| G6
   F10 -->|SATISFIES| G6
-  F11 -->|SATISFIES| G3
-  F7 -->|SATISFIES| G3
-
-  R1 -->|BELONGS_TO| F1
-  R2 -->|BELONGS_TO| F1
-  R9 -->|BELONGS_TO| F1
-  R10 -->|BELONGS_TO| F1
-  R3 -->|BELONGS_TO| F8
+  F18 -->|SATISFIES| G6
+  R13 -->|BELONGS_TO| F1
+  R12 -->|BELONGS_TO| F1
+  R17 -->|BELONGS_TO| F1
+  R11 -->|BELONGS_TO| F1
   R4 -->|BELONGS_TO| F3
   R5 -->|BELONGS_TO| F3
-  R6 -->|BELONGS_TO| F4
   R7 -->|BELONGS_TO| F5
   R8 -->|BELONGS_TO| F6
-
-  R3 -->|DEPENDS_ON| D1
-  R3 -->|DEPENDS_ON| D3
+  R26 -->|BELONGS_TO| F4
+  R39 -->|BELONGS_TO| F8
+  R91 -->|BELONGS_TO| F14
+  R96 -->|BELONGS_TO| F15
+  R11 -->|DEPENDS_ON| D4
+  R13 -->|DEPENDS_ON| D4
   R4 -->|DEPENDS_ON| D1
-  R4 -->|DEPENDS_ON| D4
   R5 -->|DEPENDS_ON| D1
-  R6 -->|DEPENDS_ON| D1
   R7 -->|DEPENDS_ON| D1
-  R9 -->|DEPENDS_ON| D4
-  R10 -->|DEPENDS_ON| D4
-  R1 -->|DEPENDS_ON| D4
   R8 -->|DEPENDS_ON| D8
-
+  R39 -->|DEPENDS_ON| D3
+  R91 -->|DEPENDS_ON| D22
+  R96 -->|DEPENDS_ON| D14
+  F1 -->|EXPOSES| E2
   F1 -->|EXPOSES| E4
   F1 -->|EXPOSES| E5
   F1 -->|EXPOSES| E6
   F1 -->|EXPOSES| E7
-  F1 -->|EXPOSES| E2
   F8 -->|EXPOSES| E3
   F5 -->|EXPOSES| E1
   F6 -->|EXPOSES| E1
-
-  R2 -->|MITIGATES| E4
-  R1 -->|MITIGATES| E5
-  R9 -->|MITIGATES| E6
-  R9 -->|MITIGATES| E7
-  R3 -->|MITIGATES| E3
+  F14 -->|EXPOSES| E30
   R7 -->|MITIGATES| E1
-
+  R13 -->|MITIGATES| E4
+  R13 -->|MITIGATES| E5
+  R12 -->|MITIGATES| E6
+  R12 -->|MITIGATES| E7
+  R39 -->|MITIGATES| E3
   F1 -->|MEASURED_BY| M1
   F6 -->|MEASURED_BY| M2
   F9 -->|MEASURED_BY| M3
   F9 -->|MEASURED_BY| M5
   F10 -->|MEASURED_BY| M4
   F10 -->|MEASURED_BY| M6
-  F11 -->|MEASURED_BY| M3
+  F4 -->|MEASURED_BY| M26
+  F7 -->|MEASURED_BY| M27
 ```
 
 ---
@@ -211,16 +221,16 @@ Mercetia Calculator is a production-grade Java calculation library and service s
 - **API Module (mercetia-api):** Spring Boot REST service with JSON responses, JWT authentication, and OpenAPI/Swagger documentation
 - **Persistence (mercetia-persistence):** PostgreSQL with JPA/Hibernate for employee records, tax brackets, calculation history, and Flyway migrations
 - **Tax Data (mercetia-tax-data):** Tax bracket seed data, yearly migrations, and state-specific withholding configurations
-- **Security (mercetia-security):** JWT authentication, RBAC authorization, PII masking, and secrets management
+- **Security (mercetia-security):** JWT authentication, RBAC authorization, PII masking, and secrets management — the shipped security module (F18) **owns** the security requirements R44–R47 (JWT/RBAC/session fixation) and R49/R50 (PII/secrets) per AUD-37; `mercetia-api` consumes it (§1.3)
 
 **Out of Scope (Phase 1):**
 - Full benefits administration/enrollment workflow (deduction modeling only)
-- City/county local taxes (NYC, Philadelphia, etc.) — `REQ-OOS-LOCAL-TAX` (scope=deferred, Phase 2+)
-- Multi-state employee workflows — `REQ-OOS-MULTI-STATE` (scope=deferred, Phase 2+)
-- Full reporting/forms generation (W-2, 941 equivalents) — `REQ-OOS-REPORTING` (scope=deferred, Phase 2+)
-- Webhook/payroll provider sync integrations — `REQ-OOS-PROVIDERS` (scope=deferred, Phase 2+)
-- Multi-currency support — `REQ-OOS-MULTI-CURRENCY` (scope=deferred, Phase 2+)
-- Multi-employer SS wage reconciliation — `REQ-OOS-MULTI-EMPLOYER` (scope=deferred, Phase 2+)
+- City/county local taxes (NYC, Philadelphia, etc.) — `REQ-OOS-LOCAL-TAX` (R82, scope=deferred, Phase 2+)
+- Multi-state employee workflows — `REQ-OOS-MULTI-STATE` (R83, scope=deferred, Phase 2+)
+- Full reporting/forms generation (W-2, 941 equivalents) — `REQ-OOS-REPORTING` (R86, scope=deferred, Phase 2+)
+- Webhook/payroll provider sync integrations — `REQ-OOS-PROVIDERS` (R87, scope=deferred, Phase 2+)
+- Multi-currency support — `REQ-OOS-MULTI-CURRENCY` (R84, scope=deferred, Phase 2+)
+- Multi-employer SS wage reconciliation — `REQ-OOS-MULTI-EMPLOYER` (R85, scope=deferred, Phase 2+)
 - Real-time payroll processing
 
 **Boundaries:**
@@ -232,24 +242,24 @@ Mercetia Calculator is a production-grade Java calculation library and service s
 
 `mercetia-core` is the foundational node of the dependency graph. Every module consumes it; it consumes nothing.
 
-**Core purity (REQ-CORE-PURITY):**
+**Core purity (REQ-CORE-PURITY / R62):**
 - `mercetia-core` is pure Java 21 — **zero Spring imports** at compile time, including `spring-context`, `spring-boot`, and `jakarta.*` annotations.
-- Enforcement is automated: a Gradle module dependency check task and an ArchUnit test in CI both fail the build on any Spring (or non-JDK) dependency leaking into `mercetia-core`. Violations are blocking, not warning-level.
+- Enforcement is automated: a Gradle module dependency check task and an ArchUnit test in CI both fail the build on any Spring (or non-JDK) dependency leaking into `mercetia-core`. Violations are blocking, not warning-level. (Enforcement dependency is D25 ArchUnit + Gradle module check, not the core itself — AUD-43.)
 - All monetary math inside the core uses `BigDecimal` with `HALF_EVEN` rounding; floating-point types (`float`/`double`) are forbidden by the same ArchUnit rule.
 
-**Artifact publication (REQ-CORE-ARTIFACT):**
+**Artifact publication (REQ-CORE-ARTIFACT / R63):**
 - `mercetia-core` is published as a Gradle artifact (e.g. `com.mercetia:mercetia-core:1.0.0`) and consumed by both `mercetia-cli` and `mercetia-api`. Java 21 + Gradle KTS (ADR-003) are wired through the core build so all downstream modules inherit the same toolchain (AUD-03/04).
 
-**Resource envelope (REQ-CORE-RESOURCES):**
+**Resource envelope (REQ-CORE-RESOURCES / R64):**
 - Heap usage < 500MB for typical employee payloads (< 200 compensation elements); GC pause < 100ms during calculation workloads (measured per §3.1).
 
-**Module dependency rules:**
+**Module dependency rules (R76):**
 - `mercetia-core` ← `mercetia-tax-data`, `mercetia-persistence`, `mercetia-cli`, `mercetia-api`, `mercetia-security`
 - `mercetia-security` ← `mercetia-api` (auth is API-layer concern)
 - `mercetia-tax-data` + `mercetia-persistence` ← `mercetia-api`, `mercetia-cli`
 - No module may depend on another module's internals; shared contracts live in `mercetia-core`.
 
----
+**Security module ownership (F18, AUD-37):** `mercetia-security` is a first-class shipped module that owns R44 (JWT auth), R45 (RBAC), R46 (session fixation), R47 (auth_tokens storage), R49 (PII handling), and R50 (secrets management). Co-ownership cross-edges to F9 (Auth & RBAC) and F10 (Secrets & PII Protection) are retained: the graph model treats those features as the functional faces of the module's contracts.
 
 ## 2. Functional Requirements
 
@@ -262,7 +272,9 @@ Mercetia Calculator is a production-grade Java calculation library and service s
 | **Commission** | Base salary + commission percentage on sales/revenue | **Given** a commission employee with base salary B, commission rate c, and sales S: **When** calculating gross pay: **Then** gross = B + (S * c). Commission base source (gross vs net) configured per employee. |
 | **Hybrid** | Combination of above (e.g., hourly + commission) | **Subsection 2.1.1:** Hybrid Pay Type Definition — hybrid_gross = hourly_gross + commission_gross. The 40-hour OT threshold applies only to the hourly component. Example: Employee with $20/hr base (40hrs) + 10% commission on $5K sales: Gross = (40 × $20) + ($5K × 0.10) = $800 + $500 = $1,300. Clarification: "Salaried employees do not automatically qualify for overtime; manual override required if company policy differs." |
 
-**Hours cap (REQ-HOURS-CAP):** `0 ≤ h ≤ 168` per Mon–Sun week for hourly/hybrid pay types. Values outside this range fail validation with `422 INVALID_HOURS` (see §5.2).
+**Hours cap (REQ-HOURS-CAP / R11):** `0 ≤ h ≤ 168` per Mon–Sun week for hourly/hybrid pay types. Values outside this range fail validation with `422 INVALID_HOURS` (see §5.2).
+
+**Requirements (graph refs):** R13 (hourly OT formula, F1), R14 (salaried gross + 366/365 daily proration, F1), R15 (commission gross, F1), R16 (hybrid gross, F1), R17 (pay frequencies, F1), R18 (grossAmountOverride, F1), R11 (REQ-HOURS-CAP, F1).
 
 ### 2.1.1 Hybrid Pay Type Definition
 
@@ -283,11 +295,13 @@ Mercetia Calculator is a production-grade Java calculation library and service s
 
 **Constraint:** Custom cycles >35 days or <7 days require executive approval (compliance check).
 
-**Calendar rules (REQ-CALENDAR-RULES):** All day math uses `java.time` (`LocalDate`, `YearMonth`, `TemporalAdjusters`). Daily-rate proration uses `S/366` on leap years and `S/365` otherwise. February 29 is a valid period date. Month-end is computed with `TemporalAdjusters.lastDayOfMonth()`; monthly = `[1st, EOM]`; semi-monthly P2 = `[15th, EOM]` (AUD-17/18).
+**Calendar rules (REQ-CALENDAR-RULES / R12):** All day math uses `java.time` (`LocalDate`, `YearMonth`, `TemporalAdjusters`). Daily-rate proration uses `S/366` on leap years and `S/365` otherwise. February 29 is a valid period date. Month-end is computed with `TemporalAdjusters.lastDayOfMonth()`; monthly = `[1st, EOM]`; semi-monthly P2 = `[15th, EOM]` (AUD-17/18).
+
+**Requirements (graph refs):** R12 (REQ-CALENDAR-RULES, F1, DEPENDS_ON D20 JDK stdlib), R17 (pay frequencies, F1; custom <7 or >35 requires executive approval).
 
 ### 2.3 Tax Calculations (US Federal + State)
 
-**FICA base (REQ-FICA-BASE):** `period_fica_base = period_gross − pre_tax_401k − hsa − health` (health premiums are excluded from FICA; see §2.4).
+**FICA base (REQ-FICA-BASE / R24):** `period_fica_base = period_gross − pre_tax_401k − hsa − health` (health premiums are excluded from FICA; see §2.4).
 
 | Calculation Type | Rules | Given/When/Then |
 |------------------|-------|-----------------|
@@ -298,6 +312,8 @@ Mercetia Calculator is a production-grade Java calculation library and service s
 | **FUTA/SUTA** | Employer-side unemployment taxes, yearly limits | **Given** employee wages G and employer state S, year Y: **When** calculating FUTA/SUTA: **Then** apply state-specific rate up to state wage base. FUTA base rate 6.0% first $7,000, credit for state taxes paid. |
 
 **Yearly Updates:** Tax brackets and FICA limits are stored in versioned, immutable snapshots (`tax_brackets_federal`, `tax_brackets_state`, `fica_limits`, linked by `snapshot_id`), updatable via API without code changes, subject to snapshot gating (§2.3.3).
+
+**Requirements (graph refs):** R19 (federal progressive calc, HALF_EVEN, $0.01, DEPENDS_ON D18 IRS Pub 15-T), R20 (state tax flat/progressive), R21 (federal–state interaction: federal std deduction is federal-only), R22 (FUTA/SUTA), R23 (Phase 1 state coverage CA/TX/FL/NY/PA/IL/OH/GA/NC/MI + YoY regression 2020–2024), R24 (REQ-FICA-BASE), R25 (REQ-FILING-STATUS).
 
 ### 2.3.1 Federal–State Tax Interaction Rules
 
@@ -333,12 +349,12 @@ states:
 
 ### 2.3.2 FICA Wage Limits & Medicare Additional Tax
 
-**Filing statuses (REQ-FILING-STATUS):** The only recognized statuses are `SINGLE`, `MFJ`, `MFS`, `HOH`. Any value outside this enum is rejected on input.
+**Filing statuses (REQ-FILING-STATUS / R25):** The only recognized statuses are `SINGLE`, `MFJ`, `MFS`, `HOH`. Any value outside this enum is rejected on input.
 
 **Social Security (6.2% + 6.2% employer):**
 - Evaluated against the yearly wage base (~$168.6K in 2024) using **cumulative YTD wages** (`ytdSSWages`), never period gross alone. The current period's subject wages = `min(ytdSSRemaining, period_fica_base)` per §2.3.
 - Excess income above the wage base is exempt from SS withholding for the remainder of the calendar year.
-- Per-employee, per-calendar-year; no reconciliation across employers (deferred, `REQ-OOS-MULTI-EMPLOYER`).
+- Per-employee, per-calendar-year; no reconciliation across employers (deferred, `REQ-OOS-MULTI-EMPLOYER` / R85).
 
 **Medicare (1.45% + 1.45% employer + 0.9% additional):**
 - Standard 1.45% on the full `period_fica_base`, employee + employer.
@@ -353,11 +369,13 @@ states:
 
 - Mercetia requires `tax_filing_status` to determine the correct threshold.
 
-**Out of Scope (Phase 1):** Multi-employer SS wage reconciliation — `REQ-OOS-MULTI-EMPLOYER` (scope=deferred, Phase 2+).
+**Out of Scope (Phase 1):** Multi-employer SS wage reconciliation — `REQ-OOS-MULTI-EMPLOYER` (R85, scope=deferred, Phase 2+).
+
+**Requirements (graph refs):** R4 (FICA SS YTD wage base, F3), R5 (Medicare 0.9% YTD threshold, F3), R24 (REQ-FICA-BASE), R25 (REQ-FILING-STATUS), R33 (YTD aggregation within $0.01), R34 (YTD year-boundary reset).
 
 ### 2.3.3 Tax Bracket Versioning & Updates
 
-**Immutable snapshots (REQ-BRACKET-SNAPSHOT):**
+**Immutable snapshots (REQ-BRACKET-SNAPSHOT / R39):**
 - All bracket and FICA-limit data for a year is captured in an **immutable snapshot per `(year, version_id)`** that bundles federal brackets + state brackets + `fica_limits`.
 - Every calculation resolves its brackets **at calculation start** from a single snapshot, and stores that snapshot on `mercetia_calculations.bracket_version_id` (FK → `tax_bracket_snapshots.version_id`).
 - Snapshots are never mutated in place. Mid-year updates create a **new `version_id`**; rows belonging to a prior `(year, version_id)` are never overwritten.
@@ -366,15 +384,17 @@ states:
 - All calculations for year Y use brackets locked as of Jan 1, Y (snapshot `(Y, v1)`).
 - Mid-year bracket changes are explicitly `scope=deferred` (Phase 2). Phase 2 spike: mid-year update workflow and retroactive recalculation policy.
 
-**Versioned API:**
+**Versioned API (R40):**
 - `POST /api/v1/tax-brackets/{year}` is idempotent and requires `If-Match: {version_id}` as an optimistic lock. A concurrent update (stale `If-Match`) fails with `412 Precondition Failed`; retry with the current `version_id`.
 - `GET /api/v1/tax-brackets/{year}?version_id=...` reads a specific snapshot; omitting `version_id` returns the latest.
 
-**Fallback chain (READ-ONLY):**
+**Fallback chain (READ-ONLY, R41):**
 1. Try year Y snapshot.
 2. If unavailable, fall back to Y-1, Y-2, ... (earliest available) or to the **last-known-good in-memory cache** (§3.6). The fallback chain is **READ-ONLY**: it never mutates rows and never writes a synthetic "year Y" snapshot.
 3. Any use of fallback data sets `degradedMode=true` and appends a `warnings[]` entry (§4.5).
 4. `503 Service Unavailable` is returned **only** when zero bracket data exists for any year (no snapshot, no cache).
+
+**Requirements (graph refs):** R39 (REQ-BRACKET-SNAPSHOT, F8), R40 (versioned bracket API + If-Match), R41 (READ-ONLY fallback chain), R42 (yearly snapshot updates), R43 (CLI tax-brackets import/export), R79 (REQ-BRACKET-CACHE), R80 (REQ-DEGRADED-MODE).
 
 ---
 
@@ -398,9 +418,11 @@ states:
 
 The FICA computations in §2.3 operate on `period_fica_base`, never on federal/state taxable income.
 
+**Requirements (graph refs):** R27 (pre-tax order 401k → HSA → health, F4), R28 (deduction categories PRE_TAX/POST_TAX/EMPLOYER_PAID treatment matrix, F4), R29 (401k limits + ACA safe harbors, F4).
+
 ### 2.5 YTD Accumulator Strategy
 
-**YTD Accumulator Source (REQ-YTD-SOURCE):**
+**YTD Accumulator Source (REQ-YTD-SOURCE / R30):**
 - **Option A:** Client passes YTD figures in request (stateless API) — request fields are **advisory only**.
 - **Option B:** API fetches from DB (stateful) — **authoritative**, single source of truth.
 
@@ -409,7 +431,7 @@ The FICA computations in §2.3 operate on `period_fica_base`, never on federal/s
 **Endpoint:** `GET /api/v1/employees/{id}/ytd?year=2024`
 - Returns: `{ ytdGross, ytdFederal, ytdState, ytdFicaSocialSecurity, ytdFicaMedicare, ytdSSWages, ytdMedicareWages, ... }`
 
-**Serialization & ordering (REQ-YTD-TX):**
+**Serialization & ordering (REQ-YTD-TX / R31):**
 - Calculation + deduction snapshot + YTD write execute in **one transaction** under a **pessimistic lock on `employees.version`** (`SELECT ... FOR UPDATE`), guaranteeing read-modify-write ordering for the FICA accumulators.
 - Idempotency key: `UNIQUE(employee_id, period_start, period_end)` — replaying the same period is rejected with `409 CONFLICT`, not double-posted.
 - Corrections are **explicit ADJUSTMENT reversal records** (`reversal_of` FK → `mercetia_calculations.id`); calculation rows are never UPDATE/DELETEd (§4.8).
@@ -420,7 +442,7 @@ The FICA computations in §2.3 operate on `period_fica_base`, never on federal/s
 - YTD totals = SUM(all calculations for employee in calendar year)
 - Within $0.01 of aggregated period totals (acceptance criteria)
 
----
+**Requirements (graph refs):** R30 (REQ-YTD-SOURCE), R31 (REQ-YTD-TX, F5), R32 (REQ-CORRECTIONS, F5/F7), R33 (YTD aggregation accuracy, F5), R34 (YTD year-boundary reset, F5), R7 (YTD serialized + idempotent, F5), R71 (idempotency keys, F5/F6).
 
 ## 3. Non-Functional Requirements
 
@@ -432,7 +454,7 @@ The FICA computations in §2.3 operate on `period_fica_base`, never on federal/s
 - **Concurrent request target:** 100+ simultaneous calculations without throughput degradation (target: >95% of single-request throughput)
 - **Memory boundary:** < 500MB heap usage for typical employee payloads (< 200 compensation elements)
 - **Garbage collection pause:** < 100ms max pause time during calculation workloads
-- **Startup time (AUD-35):** API module < 3 seconds; CLI module < 1 second
+- **Startup time (AUD-35, split):** API module < 3 seconds under Spring Boot (REQ-STARTUP-API / R74, M11); CLI module < 1 second on the Spring-free Picocli fast path (REQ-STARTUP-CLI / R96, M12). A single SLA cannot serve both deployables — CLI startup must not imply Spring container startup.
 - **Core purity (AUD-01):** single-calculation latency budget assumes the pure-Java core path (§1.3); no Spring container overhead inside `mercetia-core`
 
 ### 3.2 Accuracy
@@ -446,34 +468,37 @@ The FICA computations in §2.3 operate on `period_fica_base`, never on federal/s
 
 ### 3.3 Security
 
-**Personas & goals (REQ-PERSONA-GOALS):**
+**Personas & goals (REQ-PERSONA-GOALS / R48):**
 
 | Persona | Owns Goal(s) |
 |---------|--------------|
 | Admin | Compliance |
 | Payroll Specialist | YTD Accuracy |
-| Employee | (view/update own data) |
+| Employee | Self-service access to own data (view/update own data) — G7 (AUD-38) |
 | System Integrator | Low Latency, High Availability, Observability |
 
-- **Authentication:** JWT with short-lived access tokens (15min TTL) + refresh tokens (30 day TTL)
+- **Authentication (R44):** JWT with short-lived access tokens (15min TTL) + refresh tokens (30 day TTL)
   - Access token included in `Authorization: Bearer <token>` header
   - Refresh via `POST /api/v1/auth/token` with valid refresh token
   - Token invalidation on logout, password reset, or admin forced reset
-- **Authorization:** RBAC with fine-grained permissions matrix
+- **Authorization — RBAC (R45):** fine-grained permissions matrix
   - **Admin:** `calculate:*`, `view:*`, `manage:tax-brackets`, `manage:users`, `system:config`
   - **Payroll:** `calculate:employee*`, `view:history`, `manage:deductions[ownAssignments]`
   - **Employee:** `view:own`, `update:ownTaxProfile`
-- **PII Handling:**
+- **Session Fixation Protection (R46):** Regenerate session ID after authentication
+- **Token storage (R47):** `auth_tokens` stores SHA-256 `token_hash`, `issued_at`, `expires_at`, `revoked` for JWT invalidation support
+- **PII Handling (R49):**
   - SSN encrypted at rest (AES-256) via PostgreSQL column encryption (pgcrypto)
   - No PII in logs — mask SSN (format: ***-**-####), bank accounts, full names in all log output and error responses
-  - Input sanitization: validate all API payloads against JSON Schema before processing; reject with 400 and correlation ID
+  - Input sanitization: validate all API payloads against JSON Schema before processing; reject with 400 and correlation ID (REQ-JSONSCHEMA-VALIDATION / R95)
   - PII_READ privilege required for roles that need to view unmasked SSN
-- **Secrets Management:**
+- **Secrets Management (R50):**
   - Database credentials, JWT secrets, encryption keys via environment variables or secret manager (HashiCorp Vault/AWS Secrets Manager)
   - No hardcoded secrets in source code or configuration
   - Secret rotation without restart via Spring Cloud Config / Kubernetes Secrets
-- **Transport Security:** TLS 1.3+ for all external communications (HTTPS, gRPC over TLS)
-- **Session Fixation Protection:** Regenerate session ID after authentication
+- **Transport Security:** TLS 1.3+ for all external communications (HTTPS, gRPC over TLS) — R51 and REQ-TLS-TRANSPORT (R94, aliases R51 on the §4.3 API surface)
+
+**Ownership (AUD-37):** R44–R47 (JWT/RBAC/session/token store) and R49/R50 (PII/secrets) are owned by the `mercetia-security` module (F18); cross-edges to F9 (Auth & RBAC) and F10 (Secrets & PII Protection) are retained. R51/R52 (TLS, GDPR) remain on F10.
 
 ### 3.4 Compliance
 
@@ -514,19 +539,21 @@ The FICA computations in §2.3 operate on `period_fica_base`, never on federal/s
 
 ### 3.6 Availability & Resilience (SLA)
 
-**PostgreSQL high availability (REQ-PG-HA):**
+**PostgreSQL high availability (REQ-PG-HA / R78; failover REQ-PG-FAILOVER / R93):**
 - Single-writer **primary** with one **standby** (synchronous replication preferred); automated failover with RPO ≤ 1 minute, RTO ≤ 15 minutes (§5.6).
 - **Read replicas** serve all bracket and `fica_limits` reads; writes go only to the primary.
 - Connection pooling via **HikariCP** (API and CLI persistence paths), sized to the §3.1 concurrency target.
 
-**Bracket cache (REQ-BRACKET-CACHE):**
+**Bracket cache (REQ-BRACKET-CACHE / R79):**
 - Per-year **immutable in-memory bracket cache**, loaded from the latest `(year, version_id)` snapshot.
 - **Last-known-good fallback:** if the database is unreachable, calculations continue from the cached snapshot and mark `degradedMode=true` + `warnings[]`. This is a graceful degradation, **not** a hard 503.
 - 503 is reserved exclusively for "zero bracket data for any year" (§2.3.3, §5.4).
 
+**Requirements (graph refs):** R78 (REQ-PG-HA, F16), R79 (REQ-BRACKET-CACHE, F8/F16), R80 (REQ-DEGRADED-MODE, F8/F14), R75 (RPO/RTO targets), R93 (REQ-PG-FAILOVER, F16 — RPO ≤ 1min / RTO ≤ 15min, replicas RPO 0 / RTO ≤ 5min).
+
 ### 3.7 Feature-Level Metrics
 
-Feature metrics (REQ-FEATURE-METRICS) give each feature an objective, automated threshold:
+Feature metrics (REQ-FEATURE-METRICS / R59) give each feature an objective, automated threshold:
 
 | Feature | Metric | Target |
 |---------|--------|--------|
@@ -537,8 +564,42 @@ Feature metrics (REQ-FEATURE-METRICS) give each feature an objective, automated 
 | SECRETS-MGMT | Hardcoded secrets in code/config | 0 (secrets scanning in CI) |
 | PII-PROTECTION | PII occurrences in log output | 0 (log-scanning test in CI) |
 | HEALTH | Health components green | all components; 99.9% uptime |
+| DEDUCTIONS-LIMITS (F4) | Deduction-limit enforcement accuracy (M26) | STOP/WARN/EXCEED decisions match configured limits within $0.01 (automated test: at limit, $0.01 over, $0.01 under) |
+| CALC-HISTORY (F7) | Audit-trail completeness (M27) | 100% of calculations persist immutable rows queryable by employee_id/period/calculation_id; 0 rows UPDATE/DELETE'd (constraint-checked) |
 
----
+**New metrics (AUD-41):** M26 (deduction-limit enforcement accuracy, measured_by F4) and M27 (audit-trail completeness, measured_by F7) close the unmeasured-feature gap for Deductions & Limits and Calculation History.
+
+**Metric index (M1–M27):** the canonical definitions referenced by the acceptance criteria (§14) and the mermaid graph:
+
+| ID | Metric | Target |
+|----|--------|--------|
+| M1 | API p95 response | < 200ms |
+| M2 | Batch 10K calculations | < 30s |
+| M3 | Auth endpoint uptime | ≥ 99.9% |
+| M4 | PII in log output | 0 |
+| M5 | Token validation failure rate | < 0.1% |
+| M6 | Secret rotation cadence | < 24h |
+| M7 | Single calculation wall-clock | < 50ms |
+| M8 | 100+ concurrent at >95% single-request throughput | sustained |
+| M9 | Heap usage (payload < 200 compensation elements) | < 500MB |
+| M10 | GC pause during calculation workloads | < 100ms |
+| M11 | API startup (Spring Boot) | < 3s |
+| M12 | CLI startup (Spring-free Picocli fast path) | < 1s |
+| M13 | Federal tax accuracy vs IRS test vectors | within $0.01 |
+| M14 | YTD accumulator accuracy vs aggregated period totals | within $0.01 |
+| M15 | Tax bracket lookup vs stored DB values | within $0.01 |
+| M16 | Hardcoded secrets in code/config | 0 (CI secrets scanning) |
+| M17 | RBAC-protected endpoints enforcing authorization | 100% (automated test) |
+| M18 | Health components green / uptime | all components; 99.9% |
+| M19 | PostgreSQL RPO | ≤ 1 min |
+| M20 | PostgreSQL RTO | ≤ 15 min |
+| M21 | API/CLI RPO / RTO | 0 / ≤ 5 min |
+| M22 | Read replica RPO / RTO | 0 / ≤ 5 min |
+| M23 | Bracket cache rebuild | immediate (< 1s) |
+| M24 | CLI batch 1000 employees | < 10s |
+| M25 | Batch job progress visibility | submittedCount/processedCount/progress |
+| M26 | Deduction-limit enforcement accuracy | STOP/WARN/EXCEED matches limits within $0.01 (at limit, $0.01 over, $0.01 under) |
+| M27 | Audit-trail completeness | 100% immutable rows queryable by employee_id/period/calculation_id; 0 rows UPDATE/DELETE'd |
 
 ## 4. Architecture & Data Model
 
@@ -709,10 +770,12 @@ Feature metrics (REQ-FEATURE-METRICS) give each feature an objective, automated 
 
 ### 4.3 API & Protocol Dependencies
 
-- REST/JSON over HTTPS (TLS 1.3+) for all external API traffic
+- REST/JSON over HTTPS (TLS 1.3+) for all external API traffic — REQ-TLS-TRANSPORT (R94, aliases R51)
 - JWT bearer authentication on every protected endpoint
-- OpenAPI 3.x specification served via Springdoc at `/v3/api-docs` and `/swagger-ui`
+- OpenAPI 3.x specification served via Springdoc at `/v3/api-docs` and `/swagger-ui` — **REQ-OPENAPI (R91, new in v2.1)**: `R91 BELONGS_TO F14 (mercetia-api)`, `DEPENDS_ON D22 (Springdoc) + D13 (Spring Boot)`; resolves the D22 orphan dependency (AUD-40); built in §9 Phase 3
 - Outbound integrations (bracket data imports, future provider syncs) use HTTPS with configured timeouts and circuit-breaking (§5.1)
+
+**Requirements (graph refs):** R91 (REQ-OPENAPI, F14), R94 (REQ-TLS-TRANSPORT, F10/F14), R95 (REQ-JSONSCHEMA-VALIDATION, F14).
 
 ### 4.4 Technical Constraints
 
@@ -745,6 +808,8 @@ Feature metrics (REQ-FEATURE-METRICS) give each feature an objective, automated 
 ```
 
 When `ytdSource=REQUEST`, the caller supplies YTD accumulators and accepts responsibility for their accuracy; the API still returns the `ytd*After` values for the caller to store. When `ytdSource=DB` (default), request YTD fields are advisory and ignored.
+
+**Input validation (R72, R95):** every API payload is validated against JSON Schema **before** processing; a malformed payload is rejected with `400` plus the correlation ID (REQ-JSONSCHEMA-VALIDATION / R95). Business/domain rule violations return `422` with the §5.5 envelope.
 
 **RESPONSE Schema (200):**
 ```json
@@ -789,13 +854,15 @@ When `ytdSource=REQUEST`, the caller supplies YTD accumulators and accepts respo
 }
 ```
 
-**Degraded-mode contract (REQ-DEGRADED-MODE):** `degradedMode: true` is set whenever brackets were resolved via fallback-to-earlier-year or from the cached last-known-good snapshot. Each fallback adds a human-readable `warnings[]` entry. `503 Service Unavailable` occurs only when zero bracket data exists for any year (§5.4).
+**Degraded-mode contract (REQ-DEGRADED-MODE / R80):** `degradedMode: true` is set whenever brackets were resolved via fallback-to-earlier-year or from the cached last-known-good snapshot. Each fallback adds a human-readable `warnings[]` entry. `503 Service Unavailable` occurs only when zero bracket data exists for any year (§5.4).
+
+**Error envelope (R67):** all errors share `{error_code, message, status, correlation_id, calculation_id}` with stable machine-readable codes (`INVALID_HOURS`, `DEDUCTION_LIMIT_*`, `BRACKET_DATA_UNAVAILABLE`, `INVALID_EMPLOYEE_ID`, `CONFLICT`); batch rows reuse the same `error_code` (§5.5).
 
 ### 4.6 Batch Async Job Polling
 
 **POST /api/v1/calculate/batch** submits a job (canonical CSV payload, §6.2) and returns a `jobId`.
 
-**GET /api/v1/calculate/batch/{jobId}**
+**GET /api/v1/calculate/batch/{jobId}** — **REQ-BATCH-POLLING (R92, new in v2.1)**: returns `status` (QUEUED | PROCESSING | COMPLETED | FAILED), `submittedCount`/`processedCount`/`progress`, `resultsUrl`, and per-row `errors`; the job lifecycle contract is R36 and partial row failure (E15) does not fail the job.
 
 **RESPONSE (200):**
 ```json
@@ -817,7 +884,9 @@ When `ytdSource=REQUEST`, the caller supplies YTD accumulators and accepts respo
 }
 ```
 
-**Field alignment (REQ-BATCH-CONTRACT):** Every per-record field in the polling response and in the downloadable `/results` payload uses the **canonical snake_case names** defined in §6.2 (`employee_id`, `calculation_id`, `period_start`, `period_end`, `gross_pay`, `taxable_income`, `federal_tax`, `state_tax`, `fica_ss_employee`, `fica_medicare_employee`, `net_pay`, `success`, `error_code`, `error_message`, `bracket_version_id`, `correlation_id`). Job-level envelope fields (`jobId`, `status`, `progress`) remain camelCase. The CLI's `results.json` (§6.2) uses the identical field names.
+**Field alignment (REQ-BATCH-CONTRACT / R35):** Every per-record field in the polling response and in the downloadable `/results` payload uses the **canonical snake_case names** defined in §6.2 (`employee_id`, `calculation_id`, `period_start`, `period_end`, `gross_pay`, `taxable_income`, `federal_tax`, `state_tax`, `fica_ss_employee`, `fica_medicare_employee`, `net_pay`, `success`, `error_code`, `error_message`, `bracket_version_id`, `correlation_id`). Job-level envelope fields (`jobId`, `status`, `progress`) remain camelCase. The CLI's `results.json` (§6.2) uses the identical field names.
+
+**Requirements (graph refs):** R92 (REQ-BATCH-POLLING, F6), R36 (batch job lifecycle QUEUED|PROCESSING|COMPLETED|FAILED), R35 (REQ-BATCH-CONTRACT), R8 (canonical batch CSV, F6).
 
 ### 4.7 Deduction Limits & Snapshots
 
@@ -830,7 +899,7 @@ When `ytdSource=REQUEST`, the caller supplies YTD accumulators and accepts respo
 }
 ```
 
-**Enforcement modes (REQ-DEDUCTION-ENFORCEMENT):**
+**Enforcement modes (REQ-DEDUCTION-ENFORCEMENT / R26):**
 - `annual`: Cumulative YTD amount for calendar year
 - `per_pay_period`: Cap per single pay cycle
 - **STOP** — once the limit is reached the deduction is **inactive for the period**: it is rejected, a `DEDUCTION_LIMIT_STOPPED` warning is added to the breakdown, and the calculation completes without it. No amount is applied.
@@ -840,6 +909,8 @@ When `ytdSource=REQUEST`, the caller supplies YTD accumulators and accepts respo
 **Snapshot ordering (REQ-DEDUCTION-SNAPSHOT):**
 - Snapshot writes are **serialized per employee + period** inside the same transaction that computes the calculation and updates YTD (§2.5), so no two payroll runs can read/write the same employee's deduction state concurrently.
 - The enforcement decision (STOP/WARN/EXCEED) is captured **at snapshot commit** and persisted in `employee_deduction_snapshots.enforcement`, alongside `is_limit_exceeded`, for audit and reconstruction.
+
+**Accuracy (M26):** the STOP/WARN/EXCEED decision must match the configured limit exactly at the limit, at $0.01 over, and at $0.01 under — measured by M26 (§3.7).
 
 ### 4.8 Auditability & Immutability
 
@@ -857,10 +928,10 @@ ALTER TABLE mercetia_calculations
 
 **Application-level enforcement:**
 - All reads from `mercetia_calculations` use `SELECT ... WHERE deleted_at IS NULL`; YTD aggregation sums only non-deleted rows (§2.5).
-- **Corrections (REQ-CORRECTIONS):** a correction is written as a new row with `calculation_type = 'ADJUSTMENT'` and `reversal_of` = the id of the row being reversed. Reversed rows are never updated or deleted; the net effect is derived from the sum of CALCULATION rows minus their ADJUSTMENT reversals.
+- **Corrections (REQ-CORRECTIONS / R32):** a correction is written as a new row with `calculation_type = 'ADJUSTMENT'` and `reversal_of` = the id of the row being reversed. Reversed rows are never updated or deleted; the net effect is derived from the sum of CALCULATION rows minus their ADJUSTMENT reversals.
 - Soft-delete is reserved exclusively for GDPR right-to-be-forgotten purge and is never used for ordinary corrections.
 
----
+**Completeness (M27):** 100% of calculations must persist immutable rows queryable by `employee_id`/`period`/`calculation_id`, with 0 rows ever UPDATE/DELETE'd — measured by M27 (§3.7).
 
 ## 5. Edge Cases & Failure Recovery
 
@@ -879,6 +950,9 @@ ALTER TABLE mercetia_calculations
 - **Leap year (AUD-17/18):** February 29 is a valid period date; daily-rate proration uses 366 on leap years, 365 otherwise. Month-end uses `TemporalAdjusters.lastDayOfMonth()`.
 - **Semi-monthly day 15 (AUD-29):** P1 = `[1st, 15th)` (exclusive end, days 1–14); P2 = `[15th, EOM]` (inclusive start). Day 15 belongs to P2; no overlap and no gap.
 - **Filing status:** any value outside `SINGLE`/`MFJ`/`MFS`/`HOH` → `422 INVALID_FILING_STATUS`.
+- **Malformed payload (E28):** a request that fails JSON Schema validation (R95) is rejected with `400` and the correlation ID, before any business logic runs (R72).
+- **Idempotency replay (E10):** replaying `(employee_id, period_start, period_end)` → `409 CONFLICT`; the retried request is never double-posted (R7, R31, R71).
+- **TERMINATED / ON_LEAVE (E26):** no calculation is permitted while an employee is TERMINATED or ON_LEAVE; such requests are rejected (R81).
 - **Validation failures** are returned as `422` (business/domain rule) or `400` (malformed payload) with the error format of §5.5.
 
 ### 5.3 Retry Logic
@@ -913,10 +987,19 @@ All errors share one envelope:
 | Component | RPO | RTO | Mechanism |
 |-----------|-----|-----|-----------|
 | API/CLI services | 0 (stateless) | ≤ 5 min | Stateless redeploy, load-balancer failover |
-| PostgreSQL primary | ≤ 1 min | ≤ 15 min | Standby promotion / automated failover (§3.6) |
+| PostgreSQL primary | ≤ 1 min | ≤ 15 min | Standby promotion / automated failover (§3.6, REQ-PG-FAILOVER / R93) |
 | Read replicas | 0 | ≤ 5 min | Replica pool, replacement on failure |
 | In-memory bracket cache | n/a | immediate (< 1s rebuild) | Last-known-good reload from primary or snapshot store |
 | Tax bracket data | 0 (immutable snapshots) | ≤ 15 min | Snapshot table survives failover; cache serves during restore |
+
+### 5.7 Security, Privacy & Data Edge Cases
+
+- **Session fixation (E16):** the session ID is regenerated after authentication so a pre-auth session ID cannot be replayed post-login (R46).
+- **Token expiry / revocation (E17):** expired access tokens are rejected (401); logout, password reset, and admin forced reset revoke the token in `auth_tokens` (`revoked=true`), making JWT invalidation effective before natural expiry (R44, R47).
+- **PII leakage in logs (E18):** SSN, bank accounts, and full names are masked (SSN format `***-**-####`) in all log output and error responses; a log-scanning test in CI enforces 0 PII (R49, M4).
+- **Hardcoded secrets / secret exposure (E19):** CI secrets scanning enforces 0 hardcoded secrets in source and config; secrets rotate < 24h without restart via Vault/Secrets Manager or Spring Cloud Config (R50, M6, M16).
+- **GDPR purge / soft-delete (E22):** right-to-be-forgotten is implemented exclusively via `deleted_at` soft-delete; purged rows are excluded from all YTD aggregation; the data-export endpoint returns the employee's stored data (R52, R32).
+- **API/CLI config divergence (E30, AUD-39):** the API and CLI must consume identical `mercetia.*` semantics from the shared dual-parent config module; any divergence requires an explicit child override (REQ-CFG-PROPS / R65/R66, §7). F14 and F15 EXPOSE E30; R65/R66 MITIGATE it.
 
 ---
 
@@ -932,11 +1015,11 @@ mercetia-calc tax-brackets import --year 2024 --file brackets.csv
 mercetia-calc tax-brackets export --year 2024
 ```
 
-The binary is named `mercetia-calc` (AUD-31); it is used consistently across this document and the codebase.
+The binary is named `mercetia-calc` (AUD-31); it is used consistently across this document and the codebase. The CLI boots on the Spring-free Picocli fast path (R96, D14 + D19 only) so startup stays under 1 second (M12).
 
 ### 6.2 Batch CSV Formats
 
-**Canonical output contract (REQ-BATCH-CONTRACT):** one canonical snake_case column set shared by the CLI, the API batch results, and `results.json`:
+**Canonical output contract (REQ-BATCH-CONTRACT / R35):** one canonical snake_case column set shared by the CLI, the API batch results, and `results.json`:
 
 ```
 employee_id,calculation_id,period_start,period_end,gross_pay,taxable_income,
@@ -961,8 +1044,6 @@ The input uses `annual_salary` everywhere; the legacy `salary` field name is rem
 **Output:**
 - `--output-csv results.csv` emits the canonical CSV column set above.
 - `--output results.json` emits `results.json` with the **same field names** as the canonical CSV, aligned with the §4.6 job polling payload. A successful batch therefore produces both files from one schema.
-
----
 
 ## 7. Configuration
 
@@ -1004,7 +1085,7 @@ spring:
     enabled: true
 ```
 
-**Config property inheritance (REQ-CFG-PROPS):** `mercetia.*` properties are defined in a **dual-parent** configuration module shared by both the API and CLI (AUD-07). This is intentional: both deployables consume identical calculation semantics from the same properties file, and any divergence requires an explicit override in the child config. The shared parent is maintained in `mercetia-persistence`/`mercetia-core` resources, with per-module child files in `mercetia-api` and `mercetia-cli`.
+**Config property inheritance (REQ-CFG-PROPS / R65):** `mercetia.*` properties are defined in a **dual-parent** configuration module shared by both the API and CLI (AUD-07). This is intentional: both deployables consume identical calculation semantics from the same properties file, and any divergence requires an explicit override in the child config. The shared parent is maintained in `mercetia-persistence`/`mercetia-core` resources, with per-module child files in `mercetia-api` and `mercetia-cli`. This is the mitigation for E30 (API/CLI config divergence, AUD-39): R65 and R66 MITIGATE E30; F14 and F15 EXPOSE it. R65/R66 keep D13 only for the API property-source path — the CLI consumes the shared parent without a Spring container (per enriched-graph MAPPING decision 9).
 
 ---
 
@@ -1016,7 +1097,7 @@ spring:
 
 **Overtime edge cases (AUD-30/16):** 40.5 hrs, 50 hrs, >80 hrs (e.g. 85h → `40r + 40·1.5r + 5·2r`), exactly 168h (valid), 168.5h and 200h → `422 INVALID_HOURS`
 
-**Deduction limits:** exactly at annual limit, $0.01 over, $0.01 under — each under STOP/WARN/EXCEED enforcement
+**Deduction limits:** exactly at annual limit, $0.01 over, $0.01 under — each under STOP/WARN/EXCEED enforcement (M26)
 
 **Pay frequencies:** Feb 29 (leap year), month-end edge cases (`TemporalAdjusters.lastDayOfMonth()`), semi-monthly day-15 boundary (day 15 belongs to P2, AUD-29), bi-weekly fixed 14 days
 
@@ -1027,6 +1108,8 @@ spring:
 **Degraded mode (AUD-25):** fallback-to-earlier-year sets `degradedMode=true` + warning; cached-bracket fallback during simulated DB outage; 503 only when zero bracket data for any year
 
 **Year-over-year regression:** 2020–2024, same employee through each year's brackets
+
+**Security edge cases:** expired/revoked token rejected (E17); session ID regenerated post-auth (E16); JSON Schema malformed payload → 400 + correlation ID (E28); idempotency replay → 409 (E10); TERMINATED/ON_LEAVE calculation rejected (E26)
 
 ### 8.2 CLI Batch Test
 
@@ -1054,33 +1137,43 @@ success, error_code, error_message, bracket_version_id, correlation_id
 - **Year-over-year regression:** 2020–2024, same employee through each year's brackets
 - **Core purity gate:** ArchUnit + Gradle module dependency check fail the build on any Spring import in `mercetia-core` (§1.3)
 
----
+## 9. Implementation Phases
 
-## 9. Delivery Phases
+### 9.1 Phase 1: Core Functionality (Milestone 1)
+**Duration:** 8 weeks · **Exit criteria:** all §8 unit + CLI batch tests green, IRS 2024 vectors within $0.01
 
-### Phase 1: Core Library (Week 1-2)
-- Domain model, calculation engine (pure Java, zero Spring — §1.3)
-- Unit tests with IRS test vectors (including FICA YTD-basis, hours cap, OT/double-time, calendar rules)
-- Gradle publication setup (`com.mercetia:mercetia-core`)
+- Payroll core (F1): hourly/salaried/commission/hybrid gross, OT/double-time, frequencies, overrides
+- Tax calculations (F2): federal, state (10 states), FICA SS/Medicare with YTD wage-base logic
+- Deductions & limits (F4): pre-tax order, category matrix, STOP/WARN/EXCEED enforcement
+- YTD accumulator (F5): DB-sourced authoritative YTD, single-transaction serialized updates
+- Data persistence (F16): PostgreSQL schema, Flyway, immutable calculation rows
+- Employee enrollment API (F13): employees, pay periods, deductions CRUD
+- CLI (F12): interactive, single calculate, batch, tax-brackets import/export; Spring-free fast path (R96)
+- Bracket cache + degraded mode (F8): last-known-good fallback, `degradedMode=true`
 
-### Phase 2: Persistence & Tax Data (Week 3)
-- JPA entities, Flyway migrations
-- Tax bracket seed data (2020-2025), immutable snapshot model (§2.3.3)
-- Repository layer
-- **Spike: Mid-year bracket update workflow with version gating and retroactive recalculation policy** (REQ mid-year changes remain `scope=deferred` until this spike completes)
+**Phase 1 hardening (v2.1):** OpenAPI spec (R91) shipped in §9.3 (Phase 3), not Phase 1; R91/ADR-018 acknowledged as deferred-to-Phase-3 with F14 as the owning feature.
 
-### Phase 3: REST API (Week 4)
-- Spring Boot API module
-- OpenAPI/Swagger docs
-- Authentication skeleton (JWT login/refresh)
-- **Spike: Correlation ID propagation across modules**
+### 9.2 Phase 2: Enhancements (Milestone 2)
+**Duration:** 6 weeks · **Exit criteria:** batch 10K/30s, p95 < 200ms, secrets rotation < 24h
 
-### Phase 4: CLI & Polish (Week 5)
-- CLI module with Picocli (`mercetia-calc`)
-- Batch processing with canonical CSV + results.json (§6.2)
-- Documentation, examples
+- Batch job polling (F6): async lifecycle QUEUED/PROCESSING/COMPLETED/FAILED, canonical results (R92)
+- Calculation history + corrections (F7): ADJUSTMENT reversal records, history view
+- Deduction audit trail: snapshot enforcement capture
+- Security hardening (F9/F10): RBAC, PII masking, secrets rotation
+- Reversal corrections workflow (R32)
+- **Spike: Mid-year bracket update workflow with version gating and retroactive recalculation policy** (`REQ-MIDYEAR-BRACKETS`, §2.3.3 — remains `scope=deferred` until this spike completes)
 
-### 9.2 Deferred Scope (Phase 2+)
+### 9.3 Phase 3: Expansion (Milestone 3)
+**Duration:** 8 weeks · **Exit criteria:** state coverage 10 → 50, ACA affordability, audit dashboards
+
+- Multi-state expansion (beyond 10 pilot states)
+- ACA affordability (safe harbor methods)
+- Audit & compliance dashboard
+- OpenAPI public docs (R91, REQ-OPENAPI — resolves D22 orphan, AUD-40): springdoc at `/v3/api-docs` + `/swagger-ui`, generated from F14
+- 401k catch-up ($30,500 age 50+) enforcement (AUD-36)
+- **Spike: Correlation ID propagation across modules** (§3.5.1)
+
+### 9.4 Deferred Scope (Phase 2+)
 
 All deferred items carry `scope=deferred` markers and are **not** Phase 1 dependencies:
 
@@ -1128,7 +1221,7 @@ Java 21 + Gradle KTS toolchain and all Phase 1 dependencies are wired through `m
 |---|----------|-------------------------------|----------------------|-------------|
 | 1 | **State coverage** | Employee geographic distribution data; top 10 states by employee count; per-state compliance cost (filing frequency, registration, reporting); expansion metric definitions | Blocks Phase 1 subset selection; ~80% of users affected; delays time-to-market for high-density states | **High (P0)** |
 
-Only Q1 (state coverage) remains genuinely open; all other questions were resolved by the §9.2 deferred-scope markers and their resolution decisions are recorded in §12.
+Only Q1 (state coverage) remains genuinely open; all other questions were resolved by the §9.4 deferred-scope markers and their resolution decisions are recorded in §13 (ADR).
 
 ### 10.3 Prioritization & Recommended Decision Sequence
 
@@ -1149,9 +1242,57 @@ Only Q1 (state coverage) remains genuinely open; all other questions were resolv
 
 ---
 
-## 11. Appendices
+## 11. Project Risks & Dependencies
 
-### Appendix A: Tax Bracket Examples
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Tax law changes mid-year | Incorrect withholdings | Versioned immutable snapshots, new `version_id` for mid-year changes (§2.3.3) |
+| Large employee payroll (10K+) | Batch SLA breach | Batch async job, progress polling, canonical results (R92) |
+| DB outage during payroll | Service unavailability | Read replicas, last-known-good cache fallback (§3.6) |
+| PII/SSN breach | Legal/financial liability | AES-256 encryption at rest, masking in logs, RBAC PII_READ, secrets scanning (§3.3) |
+| State tax rules drift | Incorrect state withholding | Yearly snapshot refresh, per-state test vectors, YoY regression |
+| API/CLI config divergence (E30) | Inconsistent results between surfaces | Shared dual-parent `mercetia.*` config module (R65/R66, §7) |
+| Spring container in CLI | CLI startup SLA breach | Spring-free Picocli fast path (R96, M12) |
+
+---
+
+## 12. Appendices
+
+### 12.1 Graph Audit Summary
+
+**Source:** graph-audit.md — AUD-01..AUD-43, 2026-08-12.
+
+| Requirement | Source | Defect | Resolution |
+|-------------|--------|--------|------------|
+| AUD-37 | F18 | Phantom module: R44–R47, R49, R50 unreferenced | F18 = `mercetia-security` owns R44–R47/R49/R50; cross-edges to F9/F10 retained |
+| AUD-38 | P3 | Persona chain broken: no goal | P3→G7 Employee Self-Service; G7 satisfied by F9 (Auth & RBAC) and F7 (Calculation History) |
+| AUD-39 | E30 | Edge case exposed by no feature; no mitigation | E30 = API/CLI config divergence; EXPOSED by F14/F15; MITIGATED by R65/R66 (§7) |
+| AUD-40 | D22 | Orphan dependency: Springdoc (D22) unused | New REQ-OPENAPI (R91): F14, DEPENDS_ON D22 + D13; Phase 3 (§9.3) |
+| AUD-41 | F4, F7 | Features with no metrics | M26 (deduction-limit accuracy, F4), M27 (audit-trail completeness, F7) (§3.7) |
+| AUD-42 | R1–R17 | Duplicate requirements across sources | Merged: R1≡R13, R2≡R11, R3≡R39, R6≡R26, R9≡R12, R10≡R17; canonical nodes kept |
+| AUD-43 | R62→D4 | Self-reference (requirement depends on itself) | Self-edge removed; enforcement via ArchUnit + Gradle module dependency check (D25) |
+| AUD-35 | R74 | Single startup SLA contradicted two deployables | Split: API < 3s (M11), CLI < 1s (R96, M12) |
+
+**Result: 0 orphan nodes, 0 dangling edge cases, 0 unresolved conflicts, 0 broken persona chains; 100% path continuity Persona→Goal→Feature→Requirement→Metric (43 defects resolved).**
+
+### 12.2 Terms & Acronyms
+
+| Term | Definition |
+|------|------------|
+| **FICA** | Federal Insurance Contributions Act — Social Security + Medicare taxes |
+| **YTD** | Year-to-date cumulative figures |
+| **HALF_EVEN** | Banker's rounding (BigDecimal.ROUND_HALF_EVEN) |
+| **Publication 15-T** | IRS federal withholding tables |
+| **RBAC** | Role-Based Access Control |
+| **SLA** | Service Level Agreement |
+| **RPO** | Recovery Point Objective |
+| **RTO** | Recovery Time Objective |
+| **EIN** | Employer Identification Number |
+| **ACA** | Affordable Care Act |
+| **GDPR/CCPA** | Privacy regulations (data export / right to be forgotten) |
+| **pre-tax** | Deduction taken before federal/state tax & FICA |
+
+### 12.3 Appendix A: Tax Bracket Examples
 
 **Federal 2024 Progressive Brackets (Single):**
 ```yaml
@@ -1200,7 +1341,7 @@ rate: 0.00  # No state income tax
 standard_deduction: 0
 ```
 
-### Appendix B: Deduction Disallow Matrix by State
+### 12.4 Appendix B: Deduction Disallow Matrix by State
 
 | State | Allows Fed Std Ded | 401k Reduction | HSA Reduction | Notes |
 |-------|-------------------|----------------|---------------|-------|
@@ -1210,7 +1351,7 @@ standard_deduction: 0
 | IL | ✗ | ✗ | ✗ | Flat tax; ignores deductions |
 | FL | N/A | ✓ | ✓ | No state income tax |
 
-### Appendix C: Correlation ID Format
+### 12.5 Appendix C: Correlation ID Format
 
 **Single Calculation:**
 - Format: UUID v4
@@ -1226,7 +1367,7 @@ standard_deduction: 0
 {timestamp: 2024-01-15T10:00:00Z, level: INFO, correlationId: 550e8400-e29b-41d4-a716-446655440000, service: calc-api, endpoint: POST /api/v1/calculate, durationMs: 34, message: "Calculation completed successfully"}
 ```
 
-### Appendix D: FICA YTD-Basis Example
+### 12.6 Appendix D: FICA YTD-Basis Example
 
 Employee: gross $10,000/month, pre-tax 401k $1,000, HSA $300, health $200. 2024 SS wage base $168,600.
 
@@ -1236,7 +1377,7 @@ Employee: gross $10,000/month, pre-tax 401k $1,000, HSA $300, health $200. 2024 
 
 Note the contrast: evaluated on period gross alone the SS subject would have been $8,500 (wrong); the YTD basis caps it at $3,600.
 
-### Appendix E: Canonical Batch CSV Contract
+### 12.7 Appendix E: Canonical Batch CSV Contract
 
 Canonical column set (snake_case, single header row):
 
@@ -1252,7 +1393,7 @@ Example rows:
 
 Failed rows keep `success=false` plus `error_code`/`error_message`; monetary and identifier columns are empty for rows that never computed.
 
-### Appendix F: Degraded-Mode Example
+### 12.8 Appendix F: Degraded-Mode Example
 
 **Fallback-to-cache (200 OK, degraded):**
 ```json
@@ -1277,23 +1418,72 @@ Failed rows keep `success=false` plus `error_code`/`error_message`; monetary and
 }
 ```
 
+## 13. Architecture Decision Records (ADR)
+
+**ADR-001** — Java 21 + Spring Boot 3.x: Spring confined to `mercetia-api`/`mercetia-cli`; `mercetia-core` is pure Java. Status: Accepted.
+**ADR-002** — PostgreSQL 15+ with Flyway migrations. Status: Accepted.
+**ADR-003** — BigDecimal + HALF_EVEN rounding for all monetary values. Status: Accepted.
+**ADR-004** — Use java.time for date handling. Status: Accepted.
+**ADR-005** — JWT bearer auth with SHA-256 hashed token store for revocation support. Status: Accepted.
+**ADR-006** — Event sourcing style immutable calculation history; corrections as ADJUSTMENT reversal records. Status: Accepted.
+**ADR-007** — API + CLI share identical `mercetia.*` config via a dual-parent module. Status: Accepted.
+**ADR-008** — YTD accumulators DB-sourced (authoritative), request fields advisory. Status: Accepted.
+**ADR-009** — Pessimistic lock on `employees.version` for YTD serialization. Status: Accepted.
+**ADR-010** — Idempotency key `UNIQUE(employee_id, period_start, period_end)`. Status: Accepted.
+**ADR-011** — Degraded mode (fallback-to-earlier-year + last-known-good cache); 503 only when zero bracket data exists. Status: Accepted.
+**ADR-012** — Secrets via env vars / vault, never in source. Status: Accepted.
+**ADR-013** — TLS 1.3+ everywhere. Status: Accepted.
+**ADR-014** — HikariCP pool with primary + read replicas. Status: Accepted.
+**ADR-015** — State machine transitions for ACTIVE/TERMINATED/ON_LEAVE. Status: Accepted.
+**ADR-016** — REQ-HOURS-CAP: hourly validation 0 ≤ h ≤ 168/week; hours > 168 → 422 INVALID_HOURS. Status: Accepted.
+**ADR-017** — **F18 Security Module (AUD-37):** the `mercetia-security` module is established to own R44–R47 (JWT/RBAC/session/token store) and R49/R50 (PII/secrets). It cross-links to F9 (Auth & RBAC) and F10 (Secrets & PII Protection) but does not duplicate their code; resolution of orphaned requirement nodes per the enriched graph. Status: Accepted.
+**ADR-018** — **OpenAPI R91 (AUD-40):** REQ-OPENAPI anchors the previously orphaned D22 (Springdoc) dependency to F14 (API) and D13 (Spring Boot). The spec is served via Springdoc at `/v3/api-docs` + `/swagger-ui`; built in Phase 3 (§9.3), not Phase 1. Status: Accepted (deferred to Phase 3).
+**ADR-019** — **CLI Startup SLA (R96):** the CLI boots on a Spring-free Picocli fast path (D14 CLI framework + D19 JVM core only) to satisfy the < 1s startup SLA (M12), independent of the API's < 3s Spring Boot startup (R74, M11). Status: Accepted.
+**ADR-020** — **Feature Metrics M26/M27 (AUD-41):** M26 measures deduction-limit enforcement accuracy on F4; M27 measures audit-trail completeness (100% immutable rows, 0 UPDATE/DELETE) on F7. Both are enforced by automated tests (§3.7). Status: Accepted.
+
 ---
 
-## 12. Decision Log
+## 14. Acceptance Criteria
 
-- **ADR-001:** Core library Spring-free positioning — `mercetia-core` dependency scope enforced by ArchUnit + Gradle module check (§1.3)
-- **ADR-002:** API versioning strategy — v1 as default, backwards-compatibility approach
-- **ADR-003:** Database migration branching model — Flyway per-environment vs. single baseline; Java 21 + Gradle KTS toolchain wired through `mercetia-core` (AUD-03/04)
-- **ADR-004:** CQRS vs. simple CRUD for calculation history — event sourcing light vs. immutable log; resolved as immutable log + explicit ADJUSTMENT reversals (§4.8)
-- **ADR-005:** JWT vs. session-based auth — trade-offs for stateless vs. server-side session store
-- **ADR-006:** Encryption-at-rest for SSN — database column encryption vs. application-level encryption
-- **ADR-007:** OpenAPI-first vs. code-first approach — Springdoc vs. Swagger annotations
-- **ADR-008:** Pay frequency validation — RESOLVED to concrete rules: bi-weekly fixed 14 days; semi-monthly P1=[1st,15th) / P2=[15th,EOM] with day 15 in P2; monthly=[1st,EOM]; custom 7–35 with executive approval (AUD-29, AUD-34)
-- **ADR-009:** Pre-tax deduction processing order — sequential 401k → HSA → health premiums; FICA base excludes health (`period_fica_base = gross − 401k − hsa − health`) (AUD-11, AUD-32)
-- **ADR-010:** YTD accumulator strategy — Option B (DB-sourced, authoritative) with serialized single-transaction writes, pessimistic lock on `employees.version`, idempotency `UNIQUE(employee_id, period_start, period_end)`, and ADJUSTMENT-based corrections (AUD-09)
-- **ADR-011:** Correlation ID propagation — UUID v4 per request, jobId:child-{index} for batch
-- **ADR-012:** FICA YTD-basis — SS wage base and Medicare 0.9% additional tax evaluated against cumulative YTD accumulators (`ytdSSWages`, `ytdMedicareWages`), not period gross (AUD-32)
-- **ADR-013:** Bracket snapshot immutability — brackets frozen per `(year, version_id)`; idempotent `POST /api/v1/tax-brackets/{year}` with `If-Match`; fallback chain READ-ONLY; mid-year changes create new versions (AUD-08)
-- **ADR-014:** Degraded-mode semantics — `degradedMode=true` on fallback-to-earlier-year or cached brackets with `warnings[]`; 503 only when zero bracket data for any year (AUD-25)
-- **ADR-015:** Deduction enforcement modes — STOP/WARN/EXCEED decided at snapshot commit and persisted on `employee_deduction_snapshots.enforcement`; snapshots serialized per employee+period (AUD-10, AUD-33)
-- **ADR-016:** Double-time activation — mandatory at >80h/week (`40r + 40·1.5r + (h−80)·2r`), not an optional flag (AUD-30)
+### 14.1 Feature Acceptance Criteria
+
+Each feature must satisfy its Given/When/Then behavior from §2 plus at least one acceptance criterion below, each traceable to requirement IDs and metrics.
+
+| ID | Feature | Acceptance Criteria | Traceability | Metric |
+|----|---------|---------------------|--------------|--------|
+| AC-1 | F1 — Gross Pay Calc | Hourly hours 85, rate $20 → $2,400.00 (`40×20 + 40×1.5×20 + 5×2×20`); hours 168.5 → `422 INVALID_HOURS`; hours 168 → valid; salaried proration 366 on leap years / 365 otherwise; custom cycle 7–35 days accepted, < 7 or > 35 rejected without executive approval flag | R13, R11 (REQ-HOURS-CAP), R12 (REQ-CALENDAR-RULES), R14, R17 | M7, M13 |
+| AC-2 | F2 — Tax Calculations | Federal 2024 vector matches IRS Publication 15-T within $0.01 (HALF_EVEN); state flat (TX) and progressive (CA) cases within $0.01; 2020–2024 YoY regression all green | R19, R20, R21, R22, R23 | M13 |
+| AC-3 | F3 — FICA & Medicare | SS subject = `min(remaining wage base, period_fica_base)`; Medicare 0.9% on cumulative YTD above filing-status threshold (SINGLE $200K/MFJ $250K/MFS $125K/HOH $200K); health premiums excluded from FICA base | R24 (REQ-FICA-BASE), R25 (REQ-FILING-STATUS), R4, R5 | M14 |
+| AC-4 | F4 — Deductions & Limits | Pre-tax order 401k → HSA → health; STOP blocks the deduction with `DEDUCTION_LIMIT_STOPPED` at limit, WARN applies with warning, EXCEED applies with alert + audit entry — each correct at limit, $0.01 over, $0.01 under | R26 (REQ-DEDUCTION-ENFORCEMENT), R27, R28, R29 | M26 |
+| AC-5 | F5 — YTD Accumulator | With `ytdSource=DB`, request YTD advisory and ignored; calculation + deduction snapshot + YTD write commit in one transaction; replay → `409 CONFLICT`; YTD within $0.01 of period-total aggregation; resets at year boundary | R30 (REQ-YTD-SOURCE), R31 (REQ-YTD-TX), R32 (REQ-CORRECTIONS), R33, R34, R7 | M14 |
+| AC-6 | F6 — Batch Processing | 10,000 rows submitted → status progresses QUEUED→PROCESSING→COMPLETED; `results.json`/`results.csv` use canonical snake_case columns; per-row failures recorded with `success=false` + `error_code`; partial failure does not fail the job | R35 (REQ-BATCH-CONTRACT), R36, R8, R92 (REQ-BATCH-POLLING) | M2, M25 |
+| AC-7 | F7 — Calculation History | Every calculation persists an immutable row queryable by `employee_id`/`period`/`calculation_id`; 0 rows UPDATE/DELETE'd; ADJUSTMENT reversal nets the original via `reversal_of` without mutation | R32, R7 | M27 |
+| AC-8 | F8 — Tax Bracket Mgmt | Bracket import via API or CLI; immutable snapshots per `(year, version_id)`; `If-Match` staleness → 412; fallback Y→Y-1→cache sets `degradedMode=true` + warning; 503 only when zero bracket data for any year | R39 (REQ-BRACKET-SNAPSHOT), R40, R41, R42, R43, R79, R80 | M15, M23 |
+| AC-9 | F9 — Auth & RBAC | Access token 15-min TTL; refresh 30-day TTL; RBAC matrix enforced (Admin `calculate:*`, Payroll `calculate:employee*`, Employee `view:own`/`update:ownTaxProfile`); P3→G7 path verified | R44, R45, R46, R48, R54 | M3, M5, M17 |
+| AC-10 | F10 — Secrets & PII | SSN AES-256 encrypted at rest; masked as `***-**-####` in all logs/errors; CI log-scan shows 0 PII; CI secrets scan shows 0 hardcoded secrets; rotation < 24h | R49, R50, R51, R52, R94 (REQ-TLS-TRANSPORT), R95 (REQ-JSONSCHEMA-VALIDATION) | M4, M6, M16 |
+| AC-11 | F11 — Observability | Every request has a correlation ID propagated through MDC; batch children use `{jobId}:child-{index}`; Prometheus endpoint exposes `mercetia.*` metrics; health components green | R53, R56, R57, R58 | M18 |
+| AC-12 | F12 — CLI | `mercetia-calc` named binary; interactive, single calculate, batch, tax-brackets import/export all function; CLI startup < 1s on the Picocli fast path | R96 (REQ-STARTUP-CLI), R43, R8 | M12 |
+| AC-13 | F13 — Employee Enrollment | Employee/pay-period/deduction CRUD enforces the status state machine (ACTIVE→TERMINATED/ON_LEAVE, TERMINATED terminal); TERMINATED/ON_LEAVE cannot be calculated | R81 | M1 |
+| AC-14 | F14 — API Server | `/api/v1/calculate` p95 < 200ms; single calc < 50ms; OpenAPI spec served at `/v3/api-docs` + `/swagger-ui` (Phase 3); malformed payload → 400 + correlation ID; idempotent replay → 409 | R74, R72, R91 (REQ-OPENAPI), R95 | M11, M1 |
+| AC-15 | F15 — CLI Module | CLI shares the dual-parent `mercetia.*` config; divergent override requires explicit child config; startup < 1s | R65 (REQ-CFG-PROPS), R96 | M12, M24 |
+| AC-16 | F16 — Data Persistence | Flyway migrations apply cleanly; `ddl-auto: validate`; primary + read replicas; RPO ≤ 1 min / RTO ≤ 15 min failover; last-known-good cache serves during DB outage | R78 (REQ-PG-HA), R93 (REQ-PG-FAILOVER), R75, R79 | M19, M20 |
+
+### 14.2 Edge Case Acceptance Criteria
+
+| ID | Edge Case | Acceptance Criteria | Traceability |
+|----|-----------|---------------------|--------------|
+| AC-E1 | E1 — OT below 40h | Hours 39 → no OT component; 40 → no OT; 40.5 → OT on 0.5h | R13 |
+| AC-E2 | E2 — Double-time 80h | Hours 80 → `40r + 40·1.5r`; 80.5 → `40r + 40·1.5r + 0.5·2r`; double time not configurable off | R13 |
+| AC-E3 | E3 — Leap year proration | Feb 29 valid; daily rate = annual/366 in 2024 | R12, R14 |
+| AC-E4 | E4 — Month-end edge | Monthly `[1st, EOM]`; semi-monthly P2 `[15th, EOM]`; day 15 in P2 | R12, R17 |
+| AC-E5 | E5 — FICA wage-base crossing | Last period before base reaches W stops SS; YTD after = W; next period SS subject = 0 | R4, R24 |
+| AC-E6 | E6 — Medicare 0.9% crossing | When `ytdMedicareWages + period_fica_base` crosses T_addl, excess × 0.009 employee-only | R5, R25 |
+| AC-E7 | E7 — $0.01 rounding | 3-paycheck month and mixed-rate periods aggregate within $0.01 of period sums | R33, R34 |
+
+### 14.3 Release Criteria (Phase 1 Gate)
+
+- All AC-1..AC-16 and AC-E1..AC-E7 green (plus §8 test suites)
+- 43 graph defects (AUD-01..AUD-43) resolved — Graph Audit Summary §12.1
+- No orphan nodes / dangling edges / unresolved conflicts / broken persona chains in the enriched graph
+- ArchUnit + Gradle module checks pass (no Spring in `mercetia-core`, D25)
+- CLI and API startup SLAs verified (M11 < 3s, M12 < 1s)
