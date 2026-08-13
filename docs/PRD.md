@@ -1,15 +1,15 @@
-# Paycheck Calculator - Product Requirements Document
+# Mercetia Calculator - Product Requirements Document
 
 ## 1. Project Overview
 
-**Project Name:** Paycheck Calculator  
+**Project Name:** Mercetia Calculator  
 **Type:** Java/Gradle multi-module project  
 **Java Version:** 21 (LTS)  
 **Framework:** Spring Boot 3.x  
 **Build Tool:** Gradle (Kotlin DSL)
 
 ### 1.1 Purpose
-A comprehensive paycheck calculation library and service supporting multiple pay types, US federal/state taxes, various pay frequencies, and full deduction/benefit modeling. Deployable as a library, CLI tool, and REST API.
+A comprehensive mercetia calculation library and service supporting multiple pay types, US federal/state taxes, various pay frequencies, and full deduction/benefit modeling. Deployable as a library, CLI tool, and REST API.
 
 ### 1.2 Scope
 - **Core Library:** Pure Java calculation engine (no Spring dependencies)
@@ -91,13 +91,13 @@ A comprehensive paycheck calculation library and service supporting multiple pay
 
 ### 4.1 Module Structure
 ```
-paycheck-calculator/
-├── paycheck-core/          # Pure Java calculation library
-├── paycheck-persistence/   # JPA entities, repositories
-├── paycheck-api/           # Spring Boot REST API
-├── paycheck-cli/           # Command-line interface
-├── paycheck-tax-data/      # Tax bracket seed data, migrations
-└── paycheck-integration-tests/
+mercetia-calculator/
+├── mercetia-core/          # Pure Java calculation library
+├── mercetia-persistence/   # JPA entities, repositories
+├── mercetia-api/           # Spring Boot REST API
+├── mercetia-cli/           # Command-line interface
+├── mercetia-tax-data/      # Tax bracket seed data, migrations
+└── mercetia-integration-tests/
 ```
 
 ### 4.2 Core Domain Model
@@ -126,7 +126,7 @@ Deduction
   - id, type: PRE_TAX | POST_TAX | EMPLOYER_PAID
   - category: RETIREMENT | HEALTH | INSURANCE | GARNISHMENT | OTHER
   - amountType: FIXED | PERCENTAGE_OF_GROSS | PERCENTAGE_OF_TAXABLE
-  - value, limits (annual, per-paycheck)
+  - value, limits (annual, per-mercetia)
   - pretaxFor: FEDERAL | STATE | FICA | ALL
 ```
 
@@ -137,14 +137,14 @@ Deduction
 - `fica_limits` - Yearly Social Security wage base, Medicare thresholds
 - `deductions` - Deduction definitions
 - `employee_deductions` - Employee-specific deduction enrollments
-- `paycheck_calculations` - Calculation history (immutable)
+- `mercetia_calculations` - Calculation history (immutable)
 - `pay_periods` - Pay period definitions
 
 ### 4.4 API Endpoints (REST)
 ```
 POST   /api/v1/calculate           # Single calculation
 POST   /api/v1/calculate/batch     # Bulk calculations
-GET    /api/v1/employees/{id}/paychecks  # History
+GET    /api/v1/employees/{id}/mercetias  # History
 GET    /api/v1/tax-brackets/federal/{year}
 GET    /api/v1/tax-brackets/state/{state}/{year}
 POST   /api/v1/tax-brackets        # Admin: update brackets
@@ -157,17 +157,17 @@ POST   /api/v1/tax-brackets        # Admin: update brackets
 ### 5.1 Commands
 ```bash
 # Interactive mode
-paycheck-calc interactive
+mercetia-calc interactive
 
 # Single calculation
-paycheck-calc calculate --employee-id 123 --pay-period 2024-01-15
+mercetia-calc calculate --employee-id 123 --pay-period 2024-01-15
 
 # Batch from CSV
-paycheck-calc batch --input employees.csv --output results.json
+mercetia-calc batch --input employees.csv --output results.json
 
 # Tax bracket management
-paycheck-calc tax-brackets import --year 2024 --file brackets.csv
-paycheck-calc tax-brackets export --year 2024
+mercetia-calc tax-brackets import --year 2024 --file brackets.csv
+mercetia-calc tax-brackets export --year 2024
 ```
 
 ---
@@ -176,7 +176,7 @@ paycheck-calc tax-brackets export --year 2024
 
 ### 6.1 Application Properties
 ```yaml
-paycheck:
+mercetia:
   default-pay-frequency: BI_WEEKLY
   rounding-mode: HALF_EVEN
   precision: 4
@@ -184,7 +184,7 @@ paycheck:
 
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/paycheck
+    url: jdbc:postgresql://localhost:5432/mercetia
   jpa:
     hibernate:
       ddl-auto: validate
