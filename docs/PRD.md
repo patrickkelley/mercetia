@@ -12,10 +12,25 @@
 A comprehensive mercetia calculation library and service supporting multiple pay types, US federal/state taxes, various pay frequencies, and full deduction/benefit modeling. Deployable as a library, CLI tool, and REST API.
 
 ### 1.2 Scope
-- **Core Library:** Pure Java calculation engine (no Spring dependencies)
-- **CLI Module:** Command-line interface for interactive/bulk calculations
-- **API Module:** Spring Boot REST service with JSON responses
+**In Scope:**
+- **Core Library:** Pure Java calculation engine (no Spring dependencies) — gross pay, tax, deduction calculations only
+- **CLI Module:** Command-line interface for interactive/bulk calculations with Picocli
+- **API Module:** Spring Boot REST service with JSON responses and authentication
 - **Persistence:** PostgreSQL with JPA/Hibernate for employee records, tax brackets, calculation history
+
+**Out of Scope:**
+- Full benefits administration/enrollment workflow (deduction modeling only)
+- City/county local taxes (NYC, Philadelphia, etc.) — tracked as future enhancement
+- Multi-state employee workflows — tracked as future enhancement
+- Full reporting/forms generation (W-2, 941 equivalents) — tracked as future enhancement
+- Webhook/payroll provider sync integrations — tracked as future enhancement
+- Multi-currency support
+- Real-time payroll processing
+
+### 1.3 Clarifications
+- "Comprehensive" refers to coverage of all US federal pay types, tax brackets, and standard deductions per IRS Publication 15-T
+- "Full deduction/benefit modeling" covers pre-tax, post-tax, and employer-paid deduction categories as defined in the domain model
+- Module separation: `mercetia-core` remains Spring-free; Spring Boot dependencies confined to `mercetia-api` and `mercetia-cli`
 
 ---
 
@@ -65,25 +80,45 @@ A comprehensive mercetia calculation library and service supporting multiple pay
 ## 3. Non-Functional Requirements
 
 ### 3.1 Performance
-- Single calculation < 50ms
-- Batch processing: 10,000 calculations < 30 seconds
-- API response time < 200ms (p95)
+- Single calculation < 50ms wall-clock time (benchmark hardware: 2.5 GHz+, 8GB RAM)
+- Batch processing: 10,000 calculations < 30 seconds wall-clock time
+- API response time < 200ms (p95) under normal load
+- Concurrent request target: 100+ simultaneous calculations without degradation
+- Memory boundary: < 500MB heap usage for typical employee payloads (< 200 comp elements)
 
 ### 3.2 Accuracy
-- Decimal precision: BigDecimal (no floating-point errors)
-- Rounding: Banker's rounding (HALF_EVEN) per IRS rules
-- Audit trail: Full calculation steps logged
+- Decimal precision: BigDecimal throughout — no floating-point types for monetary calculations
+- Rounding: Banker's rounding (HALF_EVEN) per IRS Publication 15-T rules
+- Audit trail: Full calculation steps logged in structured JSON format with correlation ID
+- Accuracy tolerance: Within $0.01 of IRS test vectors for federal tax calculations
 
 ### 3.3 Security
-- No PII in logs (mask SSN, bank accounts)
-- API authentication (JWT/OAuth2)
-- Role-based access (Admin, Payroll, Employee)
+- **Authentication:** JWT with short-lived access tokens (15min) + refresh tokens (30 days)
+- **Authorization:** RBAC with fine-grained permissions matrix (see AuthZ model below)
+  - Admin: full CRUD + tax bracket management
+  - Payroll: calculate, view history, manage deductions for assigned employees
+  - Employee: view own calculations, update personal tax profile
+- **PII Handling:** 
+  - SSN encrypted at rest (AES-256) via database column encryption
+  - No PII in logs — mask SSN, bank accounts, full names in all log output
+  - Input sanitization: validate all API payloads against schema before processing
+- **Secrets Management:** Database credentials, JWT secrets via environment variables or secret manager (Vault/Secrets Manager)
+- **Transport Security:** TLS 1.3+ for all external communications
 
 ### 3.4 Compliance
-- IRS Publication 15-T compliance
-- State-specific withholding rules
-- ACA affordability calculations
-- 401k contribution limits enforcement
+- IRS Publication 15-T compliance for federal withholding calculations
+- State-specific withholding rules as configured per state tax table
+- ACA affordability calculations (safe harbor methods)
+- 401k contribution limits enforcement (IRS annual limits)
+- Data privacy: GDPR/CCPA-conscious data handling, user export/right-to-be-forgotten endpoints
+
+### 3.5 Observability
+- **Logging:** Structured JSON logs (key-value pairs) with correlation ID per request
+- **Key metrics:** calculation duration, success/failure counts, error types, active request gauge
+- **Tracing:** OpenTelemetry SDK integrated across all modules — end-to-end request tracing
+- **Error telemetry:** Automatic error reporting with stack trace, user context, and calculation ID
+- **Health checks:** /actuator/health endpoint with custom components (DB connectivity, tax data validity)
+- **Metrics exposure:** Prometheus-compatible metrics endpoint (/actuator/prometheus)
 
 ---
 
@@ -92,63 +127,136 @@ A comprehensive mercetia calculation library and service supporting multiple pay
 ### 4.1 Module Structure
 ```
 mercetia-calculator/
-├── mercetia-core/          # Pure Java calculation library
-├── mercetia-persistence/   # JPA entities, repositories
-├── mercetia-api/           # Spring Boot REST API
-├── mercetia-cli/           # Command-line interface
-├── mercetia-tax-data/      # Tax bracket seed data, migrations
-└── mercetia-integration-tests/
+├ mercetia-core/          # Pure Java calculation library (Spring-free)
+│   └─ Calculations module — no Spring dependencies
+├ mercetia-persistence/   # JPA entities, repositories, Flyway migrations
+├ mercetia-api/           # Spring Boot REST API + OpenAPI/Swagger
+├ mercetia-cli/           # Command-line interface (Picocli)
+├ mercetia-tax-data/      # Tax bracket seed data, migrations
+├ mercetia-security/      # Auth (JWT, OAuth2), AuthZ model, PII masking
+└ mercetia-integration-tests/
 ```
 
 ### 4.2 Core Domain Model
 ```
 Employee
-  - id, firstName, lastName, ssn (encrypted), hireDate, status
+  - id: UUID (generated)
+  - firstName, lastName
+  - ssn: Encrypted (AES-256, database column encryption)
+  - hireDate: LocalDate
+  - status: ACTIVE | TERMINATED | ON_LEAVE
   - payType: HOURLY | SALARIED | COMMISSION | HYBRID
   - payFrequency: WEEKLY | BI_WEEKLY | SEMI_MONTHLY | MONTHLY
   - compensation: CompensationDetails
-  - taxProfile: TaxProfile (filing status, allowances, additional withholding)
+  - taxProfile: TaxProfile
   - deductions: List<Deduction>
-  - address: Address (for state tax)
+  - address: Address (for state tax jurisdiction)
+  - version: Long (optimistic locking)
 
-CompensationDetails
-  - hourlyRate / annualSalary / commissionRate
-  - overtimeEligible, doubleTimeEligible
-  - commissionBase (gross sales, net revenue, etc.)
+CompensationDetails (interface)
+  - hourlyRate: BigDecimal (nullable for salaried/commission)
+  - annualSalary: BigDecimal (nullable for hourly)
+  - commissionRate: BigDecimal (nullable for hourly/salaried)
+  - overtimeEligible: Boolean
+  - doubleTimeEligible: Boolean
+  - commissionBase: BigDecimal (gross sales, net revenue depending on pay type)
 
 TaxProfile
   - federalFilingStatus: SINGLE | MARRIED_JOINT | MARRIED_SEPARATE | HEAD_OF_HOUSEHOLD
-  - federalAllowances / additionalWithholding
-  - stateFilingStatus, stateAllowances
-  - exemptFromFICA, exemptFromFUTA
+  - federalAllowances: BigDecimal
+  - additionalWithholding: BigDecimal
+  - stateFilingStatus: String (state-specific code)
+  - stateAllowances: BigDecimal
+  - exemptFromFICA: Boolean
+  - exemptFromFUTA: Boolean
+  - stateTaxIds: List<String> (state-specific withholding IDs)
 
 Deduction
-  - id, type: PRE_TAX | POST_TAX | EMPLOYER_PAID
+  - id: UUID
+  - type: PRE_TAX | POST_TAX | EMPLOYER_PAID
   - category: RETIREMENT | HEALTH | INSURANCE | GARNISHMENT | OTHER
   - amountType: FIXED | PERCENTAGE_OF_GROSS | PERCENTAGE_OF_TAXABLE
-  - value, limits (annual, per-mercetia)
+  - value: BigDecimal
+  - limits: Map<String, BigDecimal> (annual, per-mercetia)
   - pretaxFor: FEDERAL | STATE | FICA | ALL
+  - isActive: Boolean
+  - effectiveDate, terminationDate: LocalDate
 ```
 
-### 4.3 Database Schema (Key Tables)
-- `employees` - Employee records
-- `tax_brackets_federal` - Yearly federal brackets
-- `tax_brackets_state` - Yearly state brackets
-- `fica_limits` - Yearly Social Security wage base, Medicare thresholds
-- `deductions` - Deduction definitions
-- `employee_deductions` - Employee-specific deduction enrollments
-- `mercetia_calculations` - Calculation history (immutable)
-- `pay_periods` - Pay period definitions
+### 4.3 Database Schema (Key Tables + ER Notes)
+- `employees` - Employee records with encrypted SSN, version column
+- `tax_brackets_federal` - year, bracket_min, bracket_max, rate (decimal)
+- `tax_brackets_state` - year, state_code, bracket_min, bracket_max, rate
+- `fica_limits` - year, ss_wage_base, medicare_threshold_standard, medicare_threshold_additional
+- `deductions` - Deduction definitions (id, type, category, amount_type, value, limits)
+- `employee_deductions` - employee_id, deduction_id, effective_date, termination_date, is_active
+- `mercetia_calculations` - calculation_id (UUID), employee_id, period_start, period_end, gross_pay, net_pay, federal_tax, state_tax, fica_employee, fica_employer, created_at (immutable)
+- `pay_periods` - period_id, start_date, end_date, pay_frequency, status (OPEN | CLOSED | LOCKED)
+- `auth_tokens` - token_hash, employee_id, issued_at, expires_at, revoked (for JWT session tracking)
+- **ER Diagram:** TBD — create ERD in Phase 2 spike
 
-### 4.4 API Endpoints (REST)
+### 4.4 API Endpoints (REST) + Request/Response Schemas
 ```
 POST   /api/v1/calculate           # Single calculation
+  Request: { employeeId: UUID, payPeriod: LocalDate, includeBreakdown: Boolean }
+  Response: 200 { calculationId, grossPay, taxableIncome, federalTax, stateTax, ficaEmployeeTax, ficaEmployerTax, netPay, breakdown: BreakdownDTO }
+
 POST   /api/v1/calculate/batch     # Bulk calculations
+  Request: { employeeIds: List<UUID>, payPeriod: LocalDate }
+  Response: 202 { jobId, status, submittedCount }
+
 GET    /api/v1/employees/{id}/mercetias  # History
+  Response: 200 { calculations: List<CalculationSummary> }
+
 GET    /api/v1/tax-brackets/federal/{year}
+  Response: 200 { year, brackets: List<BracketDTO> }
+
 GET    /api/v1/tax-brackets/state/{state}/{year}
+  Response: 200 { year, stateCode, brackets: List<BracketDTO> }
+
 POST   /api/v1/tax-brackets        # Admin: update brackets
+  Request: { year, stateCode?, brackets: List<BracketDTO> }
+  Response: 200 { updatedCount }
+
+GET    /api/v1/auth/me             # Current user profile
+POST   /api/v1/auth/token          # JWT token refresh
+
+**Error Response Formats:**
+- 400: { error: "VALIDATION_ERROR", message, correlationId, timestamp, fields: {field: "error message"} }
+- 401: { error: "AUTHENTICATION_FAILED", message, correlationId }
+- 403: { error: "AUTHORIZATION_FAILED", message, correlationId }
+- 404: { error: "RESOURCE_NOT_FOUND", message, correlationId, resourceId }
+- 422: { error: "VALIDATION_FAILED", message, correlationId, fields: {...} }
+- 500: { error: "INTERNAL_ERROR", message, correlationId, requestId (for support tracking) }
 ```
+
+### 4.5 Authentication & Authorization Model
+- **Auth Flow:** OAuth2 Resource Password Credentials + JWT access tokens
+  1. POST /api/v1/auth/login {username, password} → 200 {accessToken, refreshToken, expiresIn}
+  2. Access token (15min TTL) included in Authorization: Bearer <token> header
+  3. Refresh token (30 day TTL) used when access token expires → POST /api/v1/auth/token {refreshToken} → 200 {accessToken, refreshToken}
+  4. Tokens revoked on logout, password reset, or admin forced reset
+
+- **AuthZ Model (RBAC):**
+  | Role | Permissions |
+  |------|-------------|
+  | Admin | calculate:*, view:*, manage:tax-brackets, manage:users, system:config |
+  | Payroll | calculate:employee*, view:history, manage:deductions[ownAssignments] |
+  | Employee | view:own, update:ownTaxProfile |
+
+- **PII Masking Middleware:** Interceptor that masks SSN, bank accounts, full names in all log output and error responses (unless role has PII_READ privilege)
+
+### 4.6 Required Architectural Decision Records (ADRs) / Technical Spikes
+- ADR-001: Core library Spring-free positioning — justify `mercetia-core` dependency scope
+- ADR-002: API versioning strategy — v1 as default, backwards-compatibility approach
+- ADR-003: Database migration branching model — Flyway per-environment vs. single baseline
+- ADR-004: CQRS vs. simple CRUD for calculation history — event sourcing light vs. immutable log
+- ADR-005: JWT vs. session-based auth — trade-offs for stateless vs. server-side session store
+- ADR-006: Encryption-at-rest for SSN — database column encryption vs. application-level encryption
+- ADR-007: OpenAPI-first vs. code-first approach — Springdoc vs. Swagger annotations
+- **Technical Spike 1:** Prototype tax bracket update workflow with version gating (1 day)
+- **Technical Spike 2:** Validate BigDecimal performance at 10K calculations with Banker's rounding (2 days)
+- **Technical Spike 3:** Design correlation ID propagation across modules (1 day)
 
 ---
 
@@ -226,11 +334,13 @@ spring:
 - JPA entities, Flyway migrations
 - Tax bracket seed data (2020-2025)
 - Repository layer
+- **Spike: Tax bracket update workflow with version gating**
 
 ### Phase 3: REST API (Week 4)
 - Spring Boot API module
 - OpenAPI/Swagger docs
-- Authentication skeleton
+- Authentication skeleton (JWT login/refresh)
+- **Spike: Correlation ID propagation across modules**
 
 ### Phase 4: CLI & Polish (Week 5)
 - CLI module with Picocli
@@ -241,12 +351,12 @@ spring:
 
 ## 9. Open Questions
 
-1. **State coverage:** All 50 states + DC, or subset initially?
-2. **Local taxes:** City/county taxes (NYC, Philadelphia, etc.)?
-3. **Multi-state employees:** Employees working in multiple states?
-4. **Benefits administration:** Full benefits enrollment workflow or just deduction modeling?
-5. **Reporting:** Quarter/year-end forms (W-2, 941, state equivalents)?
-6. **Integration:** Webhooks for payroll provider sync?
+1. **State coverage:** All 50 states + DC, or subset initially? — *Phase 1: subset (top 10 by employee count), Phase 2: expand*
+2. **Local taxes:** City/county taxes (NYC, Philadelphia, etc.) — *Out of Scope (tracked as future enhancement)*
+3. **Multi-state employees:** Employees working in multiple states — *Out of Scope (tracked as future enhancement)*
+4. **Benefits administration:** Full benefits enrollment workflow or just deduction modeling? — *Deduction modeling only (Out of Scope)*
+5. **Reporting:** Quarter/year-end forms (W-2, 941, state equivalents) — *Out of Scope (tracked as future enhancement)*
+6. **Integration:** Webhooks for payroll provider sync? — *Out of Scope (tracked as future enhancement)*
 
 ---
 
@@ -261,3 +371,6 @@ spring:
 - [ ] CLI processes 1000 employees from CSV in < 10s
 - [ ] Tax brackets updatable via API without restart
 - [ ] Calculation history persisted and queryable
+- [ ] API authentication (JWT) validated with login/logout/refresh flow
+- [ ] PII masking active in all log output and error responses
+- [ ] Structured JSON logging with correlation ID per request
