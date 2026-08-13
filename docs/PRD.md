@@ -658,6 +658,8 @@ employee_id, calculation_id, gross_pay, federal_tax, state_tax, fica_employee, n
 
 ## 10. Open Questions
 
+### 10.1 Open Question Status
+
 1. **State coverage:** All 50 states + DC, or subset initially? — *Phase 1: subset (top 10 by employee count), Phase 2: expand*
 2. **Local taxes:** City/county taxes (NYC, Philadelphia, etc.) — *Out of Scope (tracked as future enhancement)*
 3. **Multi-state employees:** Employees working in multiple states — *Out of Scope (tracked as future enhancement)*
@@ -674,6 +676,37 @@ employee_id, calculation_id, gross_pay, federal_tax, state_tax, fica_employee, n
 - Full W-2/941 form generation deferred
 - Webhook/payroll provider sync deferred
 - 2024-only IRS brackets; older years available but not auto-updated
+
+### 10.2 Resolution Requirements (What Is Needed to Answer)
+
+Each open question requires specific data or decisions before it can be resolved. The table below captures the information gap, the information needed, and the impact of leaving it unresolved.
+
+| # | Question | Information Needed to Resolve | Impact if Unresolved | Criticality |
+|---|----------|-------------------------------|----------------------|-------------|
+| 1 | **State coverage** | Employee geographic distribution data; top 10 states by employee count; per-state compliance cost (filing frequency, registration, reporting); expansion metric definitions | Blocks Phase 1 subset selection; ~80% of users affected; delays time-to-market for high-density states | **High (P0)** |
+| 2 | **Local taxes** | Local jurisdiction rule database (NYC, Philadelphia, Baltimore, Detroit, Milwaukee); per-locality withholding rules (rates, brackets, thresholds); employer registration requirements; local tax layer architecture decision (separate service vs. embedded rules) | Architectural impact deferred; risk of rework if local tax layer not designed into tax engine abstraction | Medium (P1) |
+| 3 | **Multi-state employees** | Work location tracking requirements (primary vs. secondary state); reciprocal tax agreement database; primary-withholding coordination logic; mid-year move / dual-residency edge cases; UI/UX pattern for state selection in requests | Compliance risk for remote/relocating employees; no data model for work_state/prior_states today (Section 4.1) | Medium (P1) |
+| 4 | **Benefits administration** | Confirm whether "deduction modeling only" is a hard constraint or Phase 1 boundary; minimum viable benefits functionality; benefits vendor integration map (401k/HSA/COBRA); eligibility rules & data model extensions | Scope ambiguity; possible re-scope churn if enrollment workflow expected by customers | Low (P2) |
+| 5 | **Tax reporting forms** | W-2 box specifications; 941 quarterly requirements; state equivalent forms & deadlines; e-file requirements (IRS + state portals); data mapping from calculation model to form fields | Regulatory exposure; customers cannot complete year-end without form generation; may require manual workarounds | Medium (P1) |
+| 6 | **Payroll provider webhooks** | Target provider APIs (ADP, Gusto, Paychex, QuickBooks); webhook security (HMAC, token verification, retry/idempotency policies); data mapping to provider schemas; partner agreements & sandbox access | Market-dependent; low current impact but blocks provider sync integrations | Low (P2) |
+| 7 | **Multi-employer FICA SS reconciliation** | IRS Form 943 procedures (per-employer vs. aggregate); per-employee SS wage base tracking across employers per calendar year; credit/offset logic for excess withholding; cross-employer aggregation data model | Wage base accuracy risk; employees with multiple jobs may be over-withheld with no reconciliation path | **High (P0)** |
+
+### 10.3 Prioritization & Recommended Decision Sequence
+
+**Phase A (Immediate — Phase 1 boundary clarification):**
+1. **Q1 State coverage** — Confirm the 10 Phase 1 states and the expansion metric (employee count vs. revenue vs. industry)
+2. **Q7 Multi-employer FICA SS reconciliation** — Design the Phase 2 approach now; document per-employee YTD SS wage tracking requirements (Section 2.3.2 already flags this as out of scope for Phase 1)
+3. **Q5 Tax reporting forms** — Define minimum viable forms for Phase 1 vs. Phase 2; document W-2/941 data mapping requirements
+
+**Phase B (Medium term — Phase 1 deferred items):**
+4. **Q2 Local taxes** — Decide: defer entirely or design the local tax abstraction layer into the tax engine now to avoid rework
+5. **Q3 Multi-state employees** — Document work-location tracking boundaries and reciprocal agreement handling for Phase 2
+
+**Phase C (Ongoing — scope clarification):**
+6. **Q4 Benefits administration** — Confirm "deduction modeling only" is a product decision, not a temporary limitation
+7. **Q6 Payroll provider webhooks** — Assess market demand and target provider partnership requirements
+
+**Cross-Cutting Note:** All Phase 1 decisions must be reviewed before Phase 2 spikes begin (tax bracket versioning, Section 2.3.3) to avoid rework in the tax engine abstraction.
 
 ---
 
