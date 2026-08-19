@@ -44,11 +44,11 @@ flowchart LR
   subgraph Core
     C1["mercetia-core: Pure Java calc engine"]
   end
-  subgraph PayTypes
-    P1["Hourly"]
-    P2["Salaried"]
-    P3["Commission"]
-    P4["Hybrid"]
+  subgraph Personas
+    P1["Admin"]
+    P2["Payroll Specialist"]
+    P3["Employee"]
+    P4["System Integrator"]
   end
   subgraph Goals
     G1["Low Latency"]
@@ -65,15 +65,27 @@ flowchart LR
     F3["FICA YTD Calc"]
     F4["Deductions & Limits"]
     F5["YTD Accumulator"]
+    F6["Batch Processing"]
     F7["Calculation History"]
     F8["Tax Bracket Mgmt"]
+    F9["Auth & RBAC"]
+    F10["Secrets & PII Protection"]
+    F11["Observability"]
+    F12["CLI Interface"]
+    F13["Employee Enrollment"]
+    F14["API Server"]
+    F15["CLI Module"]
   end
   subgraph Requirements
+    %% AUD-42 merged canonical nodes (richer label wins):
+    %% R1≡R13→R13, R2≡R11→R11, R3≡R39→R39, R6≡R26→R26, R9≡R12→R12, R10≡R17→R17
     R11["Hours cap 0-168"]
     R12["java.time calendar rules"]
     R13["OT formula 40/1.5/2.0"]
+    R17["Pay frequencies"]
     R24["FICA SS YTD wage base"]
     R25["Medicare 0.9% YTD threshold"]
+    R26["Deduction enforcement"]
     R27["Pre-tax deduction order 401k→HSA→health"]
     R29["401k limits + ACA safe harbors"]
     R31["YTD serialized + idempotent"]
@@ -102,7 +114,10 @@ flowchart LR
     M17 ["RBAC-protected endpoints: 100% (automated test)"]
     M18 ["Health components green / 99.9% uptime"]
     M23 ["Bracket cache rebuild immediate < 1s"]
+    M26 ["Deduction-limit enforcement accuracy"]
+    M27 ["Audit-trail completeness"]
   end
+  %% Core purity enforcement (REQ-CORE-PURITY / R62)
   Core -->|PURITY| G1
   Core -->|PURITY| G2
   Core -->|PURITY| G3
@@ -110,52 +125,74 @@ flowchart LR
   Core -->|PURITY| G5
   Core -->|PURITY| G6
   Core -->|PURITY| G7
-  P1 -->|HAS_GOAL| G1
-  P2 -->|HAS_GOAL| G2
-  P3 -->|HAS_GOAL| G3
-  P4 -->|HAS_GOAL| G4
-  P1 -->|HAS_GOAL| G5
-  P2 -->|HAS_GOAL| G6
+  %% Persona → Goal mappings per REQ-PERSONA-GOALS / R48 (§3.3)
+  P1 -->|HAS_GOAL| G4
+  P2 -->|HAS_GOAL| G5
   P3 -->|HAS_GOAL| G7
+  P4 -->|HAS_GOAL| G1
+  P4 -->|HAS_GOAL| G2
+  P4 -->|HAS_GOAL| G3
+  %% Feature → Goal satisfactions
   F1 -->|SATISFIES| G1
   F2 -->|SATISFIES| G4
   F3 -->|SATISFIES| G5
   F4 -->|SATISFIES| G5
   F5 -->|SATISFIES| G5
+  F6 -->|SATISFIES| G2
+  F7 -->|SATISFIES| G3
   F8 -->|SATISFIES| G4
-  F1 -->|SATISFIES| G7
+  F9 -->|SATISFIES| G6
+  F10 -->|SATISFIES| G6
+  F11 -->|SATISFIES| G3
+  F12 -->|SATISFIES| G1
+  F13 -->|SATISFIES| G5
+  F14 -->|SATISFIES| G4
+  F15 -->|SATISFIES| G1
+  %% Requirement → Feature BELONGS_TO (AUD-42 canonical nodes, edges re-wired)
   R11 -->|BELONGS_TO| F1
   R12 -->|BELONGS_TO| F1
   R13 -->|BELONGS_TO| F1
+  R17 -->|BELONGS_TO| F1
   R24 -->|BELONGS_TO| F3
   R25 -->|BELONGS_TO| F3
+  R26 -->|BELONGS_TO| F4
   R27 -->|BELONGS_TO| F4
   R29 -->|BELONGS_TO| F4
   R31 -->|BELONGS_TO| F5
   R39 -->|BELONGS_TO| F8
+  %% Requirement → SysDep DEPENDS_ON
   R11 -->|DEPENDS_ON| D1
   R12 -->|DEPENDS_ON| D1
   R13 -->|DEPENDS_ON| D1
+  R17 -->|DEPENDS_ON| D1
   R39 -->|DEPENDS_ON| D3
+  %% Feature → EdgeCase EXPOSES
   F1 -->|EXPOSES| E1
   F1 -->|EXPOSES| E4
   F1 -->|EXPOSES| E5
   F1 -->|EXPOSES| E6
   F1 -->|EXPOSES| E7
+  %% EdgeCase → MITIGATES (expanded: R26 covers deduction limits, R13/R12 cover OT/calendar)
   R7 -->|MITIGATES| E1
   R13 -->|MITIGATES| E4
   R13 -->|MITIGATES| E5
   R12 -->|MITIGATES| E6
   R12 -->|MITIGATES| E7
+  R26 -->|MITIGATES| E10
+  R26 -->|MITIGATES| E15
+  %% Feature → Metric MEASURED_BY (expanded: M26→F4, M27→F7 close unmeasured-feature gap per AUD-41)
   F1 -->|MEASURED_BY| M1
   F1 -->|MEASURED_BY| M7
   F1 -->|MEASURED_BY| M9
   F1 -->|MEASURED_BY| M13
   F1 -->|MEASURED_BY| M14
   F1 -->|MEASURED_BY| M15
+  F4 -->|MEASURED_BY| M26
+  F7 -->|MEASURED_BY| M27
   F1 -->|MEASURED_BY| M16
   F1 -->|MEASURED_BY| M17
   F1 -->|MEASURED_BY| M18
+  F8 -->|MEASURED_BY| M23
 ```
 
 ---
