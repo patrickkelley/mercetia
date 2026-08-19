@@ -14,7 +14,7 @@
 
 ## Graph Audit Summary
 
-The following table records every anomaly detected by the Graph Engineering audit (orphan nodes, dangling requirements, unresolved edge cases, duplicate nodes, and conflicts) and where each is resolved in this document, scoped to `mercetia-core`. AUD-01…AUD-36 were resolved in v2.0; AUD-37…AUD-43 were resolved by the v2.1 enrichment pass (43 defects total). Items marked "deferred" relate to other modules (CLI, API, persistence, security) and will be addressed in separate PRDs.
+The following table records every anomaly detected by the Graph Engineering audit (orphan nodes, dangling requirements, unresolved edge cases, duplicate nodes, wrong edges, missing nodes, metric misallocation, and conflicts) and where each is resolved in this document, scoped to `mercetia-core`. AUD-01…AUD-36 were resolved in v2.0; AUD-37…AUD-43 were resolved by the v2.1 enrichment pass; AUD-44…AUD-55 were resolved by the v2.1 graph-correctness pass (55 defects total). Items marked "deferred" relate to other modules (CLI, API, persistence, security) and will be addressed in separate PRDs.
 
 | # | AUD | Anomaly | Severity | Resolution in this PRD |
 |---|-----|---------|----------|------------------------|
@@ -30,10 +30,10 @@ The following table records every anomaly detected by the Graph Engineering audi
 | 10 | AUD-30 | Conflict: Double-Time Activation | Minor | §2.1 double-time ACTIVATED at >80h, mandatory; formula `40r + 40·1.5r + (h−80)·2r` (R13) |
 | 11 | AUD-36 | Conflict: 401k Catch-Up | Minor | §3.4 catch-up limit $30,500 (age 50+) added (R29) |
 | 12 | AUD-16 | Conflict: Hours Cap vs Double-Time | Minor | §2.1/§2.2 R11 (`0 ≤ h ≤ 168`, 168.5/200 → 422) and R13 (double-time > 80) are consistent, not contradictory |
-| 13 | AUD-42 | Duplicate requirement nodes: R1≡R13, R2≡R11, R3≡R39, R6≡R26, R9≡R12, R10≡R17 | Minor | Merged to canonical single nodes (REQ-* / richer label wins); all BELONGS_TO/DEPENDS_ON/MITIGATES edges re-wired to the canonical node (enriched-graph MAPPING) |
+| 13 | AUD-42 | Duplicate requirement nodes: R1≡R13, R2≡R11, R3≡R39, R6≡R26, R7≡R31, R9≡R12, R10≡R17 | Minor | Merged to canonical single nodes (REQ-* / richer label wins); all BELONGS_TO/DEPENDS_ON/MITIGATES edges re-wired to the canonical node (enriched-graph MAPPING) |
 | 14 | AUD-43 | Core-purity self-reference: R62 (REQ-CORE-PURITY) → D4 (the core itself) | Minor | R62→D4 edge removed; enforcement carried by ArchUnit + Gradle module dependency check (D25) per §1.3 |
 
-**Result: 0 orphan nodes, 0 dangling edge cases, 0 unresolved conflicts (core scope); 100% path continuity Persona→Goal→Feature→Requirement→Metric for core calculations (defects resolved in-scope).**
+**Result: 0 orphan nodes, 0 dangling edge cases, 0 unresolved conflicts, 0 wrong MITIGATES/DEPENDS_ON/EXPOSES edges, 0 metric misallocations (core scope); 100% path continuity Persona→Goal→Feature→Requirement→Metric for core calculations (defects resolved in-scope).**
 
 ---
 
@@ -75,11 +75,12 @@ flowchart LR
     F13["Employee Enrollment"]
     F14["API Server"]
     F15["CLI Module"]
+    F16["Data Persistence"]
+    F18["Security Module"]
   end
   subgraph Requirements
     %% AUD-42 merged canonical nodes (richer label wins):
-    %% R1≡R13→R13, R2≡R11→R11, R3≡R39→R39, R6≡R26→R26, R9≡R12→R12, R10≡R17→R17
-    R7["YTD serialized + idempotent"]
+    %% R1≡R13→R13, R2≡R11→R11, R3≡R39→R39, R6≡R26→R26, R7≡R31→R31, R9≡R12→R12, R10≡R17→R17
     R11["Hours cap 0-168"]
     R12["java.time calendar rules"]
     R13["OT formula 40/1.5/2.0"]
@@ -91,34 +92,56 @@ flowchart LR
     R29["401k limits + ACA safe harbors"]
     R31["YTD serialized + idempotent"]
     R39["Bracket snapshot immutable"]
+    R62["Core purity: zero Spring imports"]
+    R63["Core artifact publication"]
+    R64["Core resource envelope"]
   end
   subgraph SysDeps
     D1["PostgreSQL primary + standby"]
     D3["In-memory bracket cache"]
     D8["Gradle artifact"]
+    D13["Spring Boot"]
+    D18["IRS Pub 15-T"]
+    D20["JDK stdlib"]
+    D22["Springdoc"]
+    D25["ArchUnit + Gradle module check"]
   end
   subgraph EdgeCases
-    E1["DB outage"]
-    E4["Over 80h double time"]
-    E5["OT across period boundary"]
-    E6["Leap year / Feb 29"]
-    E7["Month-end semi-monthly"]
-    E10["Idempotency replay"]
-    E15["Deduction limit boundary condition"]
+    EC1["DB outage"]
+    EC4["Over 80h double time"]
+    EC5["OT across period boundary"]
+    EC6["Leap year / Feb 29"]
+    EC7["Month-end semi-monthly"]
+    EC10["Idempotency replay"]
+    EC15["Deduction limit boundary condition"]
+    EC26["TERMINATED/ON_LEAVE calculation"]
+    EC28["Malformed payload"]
+    EC30["API/CLI config divergence"]
   end
   subgraph Metrics
     M1["API p95 response < 200ms"]
+    M2["Batch 10K calculations < 30s"]
+    M3["Access token TTL 15min / refresh 30d"]
+    M4["PII masked in logs: 0 violations"]
+    M5["Refresh token rotation enforced"]
+    M6["Secrets rotation < 24h"]
     M7["Single calculation wall-clock < 50ms"]
-    M9 ["Heap usage < 500MB"]
+    M9["Heap usage < 500MB"]
+    M11["API startup < 3s"]
+    M12["CLI startup < 1s"]
     M13["Federal tax accuracy within $0.01"]
     M14["YTD accumulator accuracy within $0.01"]
     M15["Tax bracket lookup within $0.01"]
-    M16 ["Hardcoded secrets in code/config: 0 (CI scanning)"]
-    M17 ["RBAC-protected endpoints: 100% (automated test)"]
-    M18 ["Health components green / 99.9% uptime"]
-    M23 ["Bracket cache rebuild immediate < 1s"]
-    M26 ["Deduction-limit enforcement accuracy"]
-    M27 ["Audit-trail completeness"]
+    M16["Hardcoded secrets in code/config: 0 (CI scanning)"]
+    M17["RBAC-protected endpoints: 100% (automated test)"]
+    M18["Health components green / 99.9% uptime"]
+    M19["PostgreSQL RPO ≤ 1 min"]
+    M20["PostgreSQL RTO ≤ 15 min"]
+    M23["Bracket cache rebuild immediate < 1s"]
+    M24["CLI config identical to API"]
+    M25["Batch 1000 employees < 10s"]
+    M26["Deduction-limit enforcement accuracy"]
+    M27["Audit-trail completeness"]
   end
   %% Core purity enforcement (REQ-CORE-PURITY / R62)
   Core -->|PURITY| G1
@@ -153,6 +176,8 @@ flowchart LR
   F13 -->|SATISFIES| G5
   F14 -->|SATISFIES| G4
   F15 -->|SATISFIES| G1
+  F16 -->|SATISFIES| G2
+  F18 -->|SATISFIES| G6
   %% Requirement → Feature BELONGS_TO (AUD-42 canonical nodes, edges re-wired)
   R11 -->|BELONGS_TO| F1
   R12 -->|BELONGS_TO| F1
@@ -165,39 +190,81 @@ flowchart LR
   R29 -->|BELONGS_TO| F4
   R31 -->|BELONGS_TO| F5
   R39 -->|BELONGS_TO| F8
+  R62 -->|BELONGS_TO| F18
+  R63 -->|BELONGS_TO| F18
+  R64 -->|BELONGS_TO| F18
   %% Requirement → SysDep DEPENDS_ON
-  R11 -->|DEPENDS_ON| D1
-  R12 -->|DEPENDS_ON| D1
-  R13 -->|DEPENDS_ON| D1
-  R17 -->|DEPENDS_ON| D1
-  R39 -->|DEPENDS_ON| D3
+  R12 -->|DEPENDS_ON| D20
+  R31 -->|DEPENDS_ON| D1
+  R39 -->|DEPENDS_ON| D1
+  R63 -->|DEPENDS_ON| D8
   %% Feature → EdgeCase EXPOSES
-  F1 -->|EXPOSES| E1
-  F1 -->|EXPOSES| E4
-  F1 -->|EXPOSES| E5
-  F1 -->|EXPOSES| E6
-  F1 -->|EXPOSES| E7
-  %% EdgeCase → MITIGATES (expanded: R26 covers deduction limits, R13/R12 cover OT/calendar)
-  R7 -->|MITIGATES| E1
-  R13 -->|MITIGATES| E4
-  R13 -->|MITIGATES| E5
-  R12 -->|MITIGATES| E6
-  R12 -->|MITIGATES| E7
-  R26 -->|MITIGATES| E10
-  R26 -->|MITIGATES| E15
-  %% Feature → Metric MEASURED_BY (expanded: M26→F4, M27→F7 close unmeasured-feature gap per AUD-41)
-  F1 -->|MEASURED_BY| M1
+  F1 -->|EXPOSES| EC4
+  F1 -->|EXPOSES| EC5
+  F1 -->|EXPOSES| EC6
+  F1 -->|EXPOSES| EC7
+  F4 -->|EXPOSES| EC15
+  F5 -->|EXPOSES| EC1
+  F5 -->|EXPOSES| EC10
+  F8 -->|EXPOSES| EC1
+  F14 -->|EXPOSES| EC28
+  F14 -->|EXPOSES| EC30
+  F15 -->|EXPOSES| EC30
+  F14 -->|EXPOSES| EC26
+  %% EdgeCase → MITIGATES (corrected per critique audit)
+  R31 -->|MITIGATES| EC1
+  R79["REQ-BRACKET-CACHE"] -->|MITIGATES| EC1
+  R80["REQ-DEGRADED-MODE"] -->|MITIGATES| EC1
+  R13 -->|MITIGATES| EC4
+  R12 -->|MITIGATES| EC5
+  R12 -->|MITIGATES| EC6
+  R12 -->|MITIGATES| EC7
+  R31 -->|MITIGATES| EC10
+  R26 -->|MITIGATES| EC15
+  R81["Employee status validation"] -->|MITIGATES| EC26
+  R95["JSON Schema validation"] -->|MITIGATES| EC28
+  R65["REQ-CFG-PROPS"] -->|MITIGATES| EC30
+  %% Inline Requirement → Feature BELONGS_TO (for inline req nodes)
+  R79 -->|BELONGS_TO| F8
+  R80 -->|BELONGS_TO| F8
+  R81 -->|BELONGS_TO| F13
+  R95 -->|BELONGS_TO| F14
+  R65 -->|BELONGS_TO| F14
+  R19 -->|BELONGS_TO| F2
+  R91 -->|BELONGS_TO| F14
+  %% Additional Requirement → SysDep DEPENDS_ON (orphan SysDep resolution)
+  R62 -->|DEPENDS_ON| D25
+  R79 -->|DEPENDS_ON| D3
+  R19 -->|DEPENDS_ON| D18
+  R91 -->|DEPENDS_ON| D13
+  R91 -->|DEPENDS_ON| D22
+  %% Feature → Metric MEASURED_BY (distributed per AC traceability in §14.1)
   F1 -->|MEASURED_BY| M7
   F1 -->|MEASURED_BY| M9
-  F1 -->|MEASURED_BY| M13
-  F1 -->|MEASURED_BY| M14
-  F1 -->|MEASURED_BY| M15
+  F2 -->|MEASURED_BY| M13
+  F3 -->|MEASURED_BY| M14
   F4 -->|MEASURED_BY| M26
+  F5 -->|MEASURED_BY| M14
+  F6 -->|MEASURED_BY| M2
+  F6 -->|MEASURED_BY| M25
   F7 -->|MEASURED_BY| M27
-  F1 -->|MEASURED_BY| M16
-  F1 -->|MEASURED_BY| M17
-  F1 -->|MEASURED_BY| M18
+  F8 -->|MEASURED_BY| M15
   F8 -->|MEASURED_BY| M23
+  F9 -->|MEASURED_BY| M3
+  F9 -->|MEASURED_BY| M5
+  F9 -->|MEASURED_BY| M17
+  F10 -->|MEASURED_BY| M4
+  F10 -->|MEASURED_BY| M6
+  F10 -->|MEASURED_BY| M16
+  F11 -->|MEASURED_BY| M18
+  F12 -->|MEASURED_BY| M12
+  F13 -->|MEASURED_BY| M1
+  F14 -->|MEASURED_BY| M1
+  F14 -->|MEASURED_BY| M11
+  F15 -->|MEASURED_BY| M12
+  F15 -->|MEASURED_BY| M24
+  F16 -->|MEASURED_BY| M19
+  F16 -->|MEASURED_BY| M20
 ```
 
 ---
@@ -525,10 +592,11 @@ Feature metrics (REQ-FEATURE-METRICS / R59) give each feature an objective, auto
 
 | Feature | Metric | Target |
 |---------|--------|--------|
+| BATCH-PROCESSING (F6) | Batch 1000 employees (M25) | 1000 employees processed in < 10s (automated test) |
 | DEDUCTIONS-LIMITS (F4) | Deduction-limit enforcement accuracy (M26) | STOP/WARN/EXCEED decisions match configured limits within $0.01 (automated test: at limit, $0.01 over, $0.01 under) |
 | CALC-HISTORY (F7) | Audit-trail completeness (M27) | 100% of calculations persist immutable rows queryable by employee_id/period/calculation_id; 0 rows UPDATE/DELETE'd (constraint-checked) |
 
-**New metrics (AUD-41):** M26 (deduction-limit enforcement accuracy, measured_by F4) and M27 (audit-trail completeness, measured_by F7) close the unmeasured-feature gap for Deductions & Limits and Calculation History.
+**New metrics (AUD-41, AUD-55):** M25 (batch 1000 employees < 10s, measured_by F6), M26 (deduction-limit enforcement accuracy, measured_by F4) and M27 (audit-trail completeness, measured_by F7) close the unmeasured-feature gap for Batch Processing, Deductions & Limits, and Calculation History.
 
 **Metric index (M1–M27):** the canonical definitions referenced by the acceptance criteria (§14) and the mermaid graph:
 
@@ -545,6 +613,7 @@ Feature metrics (REQ-FEATURE-METRICS / R59) give each feature an objective, auto
 | M17 | RBAC-protected endpoints enforcing authorization | 100% (automated test) |
 | M18 | Health components green / uptime | all components; 99.9% |
 | M23 | Bracket cache rebuild | immediate (< 1s) |
+| M25 | CLI batch 1000 employees | < 10s |
 | M26 | Deduction-limit enforcement accuracy | STOP/WARN/EXCEED matches limits within $0.01 (at limit, $0.01 over, $0.01 under) |
 | M27 | Audit-trail completeness | 100% immutable rows queryable by employee_id/period/calculation_id; 0 rows UPDATE/DELETE'd |
 
@@ -1207,7 +1276,7 @@ Only Q1 (state coverage) remains genuinely open; all other questions were resolv
 
 ### 12.1 Graph Audit Summary
 
-**Source:** graph-audit.md — AUD-01..AUD-43, 2026-08-12.
+**Source:** graph-audit.md — AUD-01..AUD-55, 2026-08-12.
 
 | Requirement | Source | Defect | Resolution |
 |-------------|--------|--------|------------|
@@ -1216,11 +1285,23 @@ Only Q1 (state coverage) remains genuinely open; all other questions were resolv
 | AUD-39 | E30 | Edge case exposed by no feature; no mitigation | E30 = API/CLI config divergence; EXPOSED by F14/F15; MITIGATED by R65/R66 (§7) |
 | AUD-40 | D22 | Orphan dependency: Springdoc (D22) unused | New REQ-OPENAPI (R91): F14, DEPENDS_ON D22 + D13; Phase 3 (§9.3) |
 | AUD-41 | F4, F7 | Features with no metrics | M26 (deduction-limit accuracy, F4), M27 (audit-trail completeness, F7) (§3.7) |
-| AUD-42 | R1–R17 | Duplicate requirements across sources | Merged: R1≡R13, R2≡R11, R3≡R39, R6≡R26, R9≡R12, R10≡R17; canonical nodes kept |
+| AUD-42 | R1–R17 | Duplicate requirements across sources | Merged: R1≡R13, R2≡R11, R3≡R39, R6≡R26, R7≡R31, R9≡R12, R10≡R17; canonical nodes kept |
 | AUD-43 | R62→D4 | Self-reference (requirement depends on itself) | Self-edge removed; enforcement via ArchUnit + Gradle module dependency check (D25) |
+| AUD-44 | R7, R31 | Duplicate requirement nodes: R7≡R31 | Merged to canonical R31 (REQ-YTD-TX); R7 removed; MITIGATES edge re-wired to R31 |
+| AUD-45 | E1, E4–E7, E10, E15 | Edge-case ID collision with §14.2 acceptance criteria | Graph edge cases renamed to EC-* prefix (EC1, EC4, EC5, EC6, EC7, EC10, EC15) to avoid collision with AC-E numbering |
+| AUD-46 | R7→E1 | Wrong MITIGATES: R7 (YTD serialization) does not mitigate E1 (DB outage) | Replaced with R31→EC1, R79→EC1, R80→EC1 |
+| AUD-47 | R26→E10 | Wrong MITIGATES: R26 (deduction enforcement) does not mitigate E10 (idempotency replay) | Replaced with R31→EC10 |
+| AUD-48 | R13→E5 | Wrong MITIGATES: R13 (OT formula) does not mitigate E5 (OT across period boundary) | Replaced with R12→EC5 (calendar rules handle week-boundary prorating) |
+| AUD-49 | R11/R12/R13/R17→D1 | Wrong DEPENDS_ON: pure calc rules do not require PostgreSQL | Removed all four edges; R12→D20 (JDK stdlib) added per §2.2 |
+| AUD-50 | R39→D3 | Reversed DEPENDS_ON: snapshot does not depend on cache | Changed to R39→D1 (snapshots stored in PostgreSQL) |
+| AUD-51 | D8 | Orphan node: Gradle artifact (D8) with no edges | Connected via R63→D8 (REQ-CORE-ARTIFACT) |
+| AUD-52 | F1→M16/M17/M18 | Metric misallocation: security/observability metrics on Gross Pay Calc | M16→F10, M17→F9, M18→F11 per AC traceability |
+| AUD-53 | E10, E15 | Missing EXPOSES: edge cases with no owning feature | Added F5→EC10, F4→EC15 |
+| AUD-54 | F1→E1 | Wrong EXPOSES: Gross Pay Calc does not expose DB outage | Changed to F5→EC1, F8→EC1 |
+| AUD-55 | M25 | Phantom metric: referenced in AC-6 but never defined | Defined M25 as "Batch 1000 employees < 10s" and added to graph |
 | AUD-35 | R74 | Single startup SLA contradicted two deployables | Split: API < 3s (M11), CLI < 1s (R96, M12) |
 
-**Result: 0 orphan nodes, 0 dangling edge cases, 0 unresolved conflicts, 0 broken persona chains; 100% path continuity Persona→Goal→Feature→Requirement→Metric (43 defects resolved).**
+**Result: 0 orphan nodes, 0 dangling edge cases, 0 unresolved conflicts, 0 wrong MITIGATES/DEPENDS_ON/EXPOSES edges, 0 metric misallocations; 100% path continuity Persona→Goal→Feature→Requirement→Metric (55 defects resolved).**
 
 ### 12.2 Terms & Acronyms
 
@@ -1430,7 +1511,7 @@ Each feature must satisfy its Given/When/Then behavior from §2 plus at least on
 ### 14.3 Release Criteria (Phase 1 Gate)
 
 - All AC-1..AC-16 and AC-E1..AC-E7 green (plus §8 test suites)
-- 43 graph defects (AUD-01..AUD-43) resolved — Graph Audit Summary §12.1
+- 55 graph defects (AUD-01..AUD-55) resolved — Graph Audit Summary §12.1
 - No orphan nodes / dangling edges / unresolved conflicts / broken persona chains in the enriched graph
 - ArchUnit + Gradle module checks pass (no Spring in `mercetia-core`, D25)
 - CLI and API startup SLAs verified (M11 < 3s, M12 < 1s)
