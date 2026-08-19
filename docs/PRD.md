@@ -79,6 +79,7 @@ flowchart LR
   subgraph Requirements
     %% AUD-42 merged canonical nodes (richer label wins):
     %% R1≡R13→R13, R2≡R11→R11, R3≡R39→R39, R6≡R26→R26, R9≡R12→R12, R10≡R17→R17
+    R7["YTD serialized + idempotent"]
     R11["Hours cap 0-168"]
     R12["java.time calendar rules"]
     R13["OT formula 40/1.5/2.0"]
@@ -102,6 +103,8 @@ flowchart LR
     E5["OT across period boundary"]
     E6["Leap year / Feb 29"]
     E7["Month-end semi-monthly"]
+    E10["Idempotency replay"]
+    E15["Deduction limit boundary condition"]
   end
   subgraph Metrics
     M1["API p95 response < 200ms"]
@@ -140,8 +143,10 @@ flowchart LR
   F5 -->|SATISFIES| G5
   F6 -->|SATISFIES| G2
   F7 -->|SATISFIES| G3
+  F7 -->|SATISFIES| G7
   F8 -->|SATISFIES| G4
   F9 -->|SATISFIES| G6
+  F9 -->|SATISFIES| G7
   F10 -->|SATISFIES| G6
   F11 -->|SATISFIES| G3
   F12 -->|SATISFIES| G1
@@ -198,14 +203,6 @@ flowchart LR
 ---
 
 ## 1. Project Overview
-
-**Project Name:** Mercetia Calculator  
-**Type:** Java/Gradle multi-module project  
-**Java Version:** 21 (LTS)  
-**Framework:** Spring Boot 3.x  
-**Build Tool:** Gradle (Kotlin DSL)
-
-### 1. Project Overview
 
 **Project Name:** Mercetia Core  
 **Type:** Java/Gradle single-module project (pure calculation engine)  
@@ -452,8 +449,6 @@ The FICA computations in §2.3 operate on `period_fica_base`, never on federal/s
 **Requirements (graph refs):** R30 (REQ-YTD-SOURCE), R31 (REQ-YTD-TX), R32 (REQ-CORRECTIONS), R33 (YTD aggregation accuracy), R34 (YTD year-boundary reset), R7 (YTD serialized + idempotent).
 
 ## 3. Non-Functional Requirements
-
-### 3.1 Performance (SLA)
 
 ### 3.1 Performance (SLA)
 
